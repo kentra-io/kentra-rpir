@@ -6,38 +6,73 @@ disable-model-invocation: true
 
 # lifecycle-refine
 
-**Stub (M6).** This bundle ships with correct frontmatter and a pointer to
-the right verbs and docs so `lifecycle init` fans out a real, loadable
-skill; the full prompt body — the actual refine-stage conversation
-discipline — lands in M7 (implementation-plan.md §8's milestone map). Do
-not treat this file as the finished skill.
+Conduct the refine stage of ONE change, in a fresh session, and stop at gate 1.
+Refine's approved artifacts are the entire input the design stage gets
+(spec-lifecycle.md §3.1, "the artifact is the interface") — do not carry
+implicit context forward from an earlier conversation about this issue; if
+you have one, re-read the issue and this change folder from scratch before
+drafting anything.
 
 ## What this stage produces
 
 - `proposal.md` — Why / What Changes / Impact, with the source-tracking
-  issue reference in frontmatter, and (optionally) a proposal to skip the
-  `design` stage for small, architecturally inert work.
+  issue reference in frontmatter (`issue: "<owner>/<repo>#<n>"`, required and
+  non-empty), `type: feature` (default) or `type: bug`, and — for small,
+  local, architecturally inert work only — `designSkip: true` proposing to
+  skip the `design` stage (spec-lifecycle.md §3.2). If this change is a bug,
+  use `/lifecycle-bug` instead; its compressed profile replaces this one.
 - `specs/<capability>/spec.md` — one delta per capability this change
-  touches (ADDED/MODIFIED/REMOVED/RENAMED Requirements, RFC-2119, with
-  GIVEN/WHEN/THEN scenarios).
+  touches (`## ADDED|MODIFIED|REMOVED|RENAMED Requirements`, RFC-2119
+  `### Requirement:` blocks each with at least one `#### Scenario:`
+  GIVEN/WHEN/THEN). New capability → its exact kebab-case name; existing
+  capability → its existing folder name under `openspec/specs/`.
 
-See spec-lifecycle.md §3.1/§3.2/§4 and §4.1 (NFR routing), and the embedded
-`kentra-spec-lifecycle` schema's `proposal`/`specs` artifact instructions
-(`openspec/schemas/kentra-spec-lifecycle/schema.yaml` after `lifecycle
-init`) for the authoritative content shape.
+Fill both from `openspec/schemas/kentra-spec-lifecycle/templates/{proposal,spec}.md`
+(written by `lifecycle init`) — those templates carry the authoritative
+section shape, not just this summary.
+
+**NFR routing (spec-lifecycle.md §4.1):** a measurable, behavior-observable
+NFR is an ordinary requirement in the spec delta, merged with the functional
+ones — never a separate document. A cross-cutting/project-wide invariant
+(stack choice, security posture) belongs in a constitution ADR instead
+(raised at the design stage). An internal-quality concern with no observable
+behavior belongs in `design.md`'s NFR-discharge section instead. Every NFR
+this change declares must land in exactly one of those three homes.
 
 ## Gate mechanics (spec-lifecycle.md §3.3)
 
-1. Draft the artifacts above in a fresh change folder
-   (`openspec/changes/<change>/`).
-2. Run `lifecycle validate --stage refine` and fix any findings.
-3. Surface the artifacts (and any proposed design-skip) to the human.
-4. On approval, run `lifecycle approve --stage refine` (add `--design-skip`
-   if the human accepted skipping `design`). This verb is mutating —
-   never pre-grant it in `allowed-tools`.
+1. Draft `proposal.md` and every touched capability's `specs/<capability>/spec.md`
+   in this change's folder (`openspec/changes/<change>/`).
+2. Run `lifecycle validate --stage refine`. Fix every finding — this is the
+   same delta-grammar/structure check `approve` re-runs before writing a
+   gate entry, so an invalid artifact can never slip through by skipping
+   this step.
+3. Surface the proposal, every delta, and any design-skip proposal to the
+   human, conversationally. Wait for their explicit approval or requested
+   changes — do not proceed on your own judgment that the artifact "looks
+   done."
+4. Only after that explicit approval, run:
+   ```
+   lifecycle approve --stage refine --approve [--design-skip] <change>
+   ```
+   Add `--design-skip` only if the human approved skipping `design` for
+   this specific change. This command is mutating — do not pre-grant it in
+   any pre-approved-command / `allowed-tools` list; the harness's own
+   permission prompt on this exact command is the second, independent
+   consent checkpoint (`--approve` satisfies `lifecycle.yml`'s
+   `consentPolicy: strict`; the permission prompt is the harness boundary
+   that must also fire). If the human instead asks for changes, revise and
+   re-validate — do not run `approve` until they say so again.
+5. A skipped `design` does not skip the constitution gate — the plan-gate
+   still runs at gate 3 (spec-lifecycle.md §3.2). Say so if you record a
+   design-skip, so the human isn't surprised later.
 
 ## Never
 
-- Never run `lifecycle approve` without the human's explicit approval of
-  what you are about to record.
-- Never hand-edit `approval-state.json` or ledger files.
+- Never run `lifecycle approve` without the human's explicit, conversational
+  approval of the exact artifacts you are about to record — and never treat
+  a silent lack of objection as approval.
+- Never hand-edit `approval-state.json` or any ledger file.
+- Never propose `designSkip: true` for work that touches architecture,
+  crosses capability boundaries, or needs a constitution ADR — that is what
+  the design stage and its plan-gate run are for.

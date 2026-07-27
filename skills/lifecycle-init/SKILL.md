@@ -7,8 +7,10 @@ disable-model-invocation: true
 # lifecycle-init
 
 Bootstrap this repository for **spec-lifecycle**: a staged, human-gated,
-spec-driven issue lifecycle (refine → design → plan → archive) in the
-OpenSpec on-disk format. The heavy lifting is one idempotent CLI command —
+spec-driven issue lifecycle (refine → design → plan → archive) over an
+owned YAML spec format (living specs and deltas are structured YAML;
+markdown is a read-only projection). The heavy lifting is one idempotent
+CLI command —
 your job is to install the CLI if needed, ask the two or three seeding
 questions that only the human can answer, run the compose, and explain
 what got installed.
@@ -68,9 +70,10 @@ fresh project) and hand over the flow:
 
 - `/lifecycle-new-feature` — intake for a new feature idea (issue + stub).
 - `/lifecycle-bug` — repro-first intake for a defect in specced behavior.
-- `/lifecycle-refine`, `/lifecycle-design`, `/lifecycle-plan` — the staged
-  artifacts, each gated by `lifecycle approve` (never hand-edit
-  `approval-state.json`).
+- `/lifecycle-refine`, `/lifecycle-design` — the staged artifacts, each
+  gated by `lifecycle approve` (never hand-edit `approval-state.json`).
+  The plan stage's `plan.yaml` is authored with `milestoned-plan-dag`'s
+  `/plan-author` skill and gated the same way.
 - `/lifecycle-archive` — folds an implemented change into the living spec.
 
 ## Never

@@ -1,0 +1,26 @@
+# kentra-rpir project configuration. Missing keys take these defaults.
+changesDir: docs/changes            # where change folders live
+tracker: none                       # none | github | jira
+constitution: false                 # true: read constitution/constitution.md in every stage
+spec:
+  questionBatch: 5                  # max questions asked in one message
+roles:                              # agent: a subagent type; model: overrides the agent's own
+  reviewer:    { agent: "kentra-rpir:reviewer",    model: opus }    # spec and plan self-review
+  implementer: { agent: "kentra-rpir:implementer", model: sonnet }
+  verifier:    { agent: "kentra-rpir:verifier",    model: opus }
+  impl-orchestrator: { model: opus }                              # the main session running implement
+  retro:       { agent: "kentra-rpir:retro",       model: opus }    # synthesis, reconciliation, remediation
+  prepass:     { agent: "kentra-rpir:retro",       model: haiku }   # transcript signals and skeleton timeline
+  reader:      { agent: "kentra-rpir:retro",       model: sonnet }  # per-milestone blind readers
+research:
+  workflow: kentra-rpir:research    # or any workflow with the same args contract
+  checker: sonnet
+  designer: opus
+  runner: sonnet
+  reasoner: opus
+implement:
+  maxAttempts: 3                    # per blocker: 2 re-dispatches with guidance, then the user
+  maxVerifyRounds: 3                # implement → verify → fix rounds per milestone
+  worktreesDir: .worktrees          # relative to the project root; gitignored
+  branchPrefix: rpir/
+  openPullRequest: true             # only when the remote is GitHub and gh is authenticated

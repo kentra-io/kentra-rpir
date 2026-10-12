@@ -1,19 +1,58 @@
-# spec-lifecycle
+# kentra-rpir
 
-A standalone SDD primitive: a **staged, human-gated, spec-driven issue lifecycle** with an **owned, native YAML spec format** — living specs and per-change spec deltas are structured YAML described by JSON Schemas published with the tool, and markdown is a deterministic, read-only projection (never hand-authored).
+A Claude Code plugin that runs one change — a feature, a bug or a chore — from
+idea to merged code, in four stages:
 
-One GitHub issue ↔ one change folder, moving through **refine → design → plan**, each stage a fresh agent session emitting a human-approved artifact. Gates are **durable file records** (`approval-state.json`, `deviation.json`) — this primitive writes them; any enforcement engine (an orchestrator, CI) reads and blocks. On completion, the change's YAML spec delta folds deterministically into the **living spec** (`openspec/specs/*/spec.yaml`), with a from-empty replay guard verifying the projection never drifts from its event log. (The `openspec/` directory name is a legacy of the format's OpenSpec ancestry — a rename is tracked in issue #6; the format itself is owned here, not OpenSpec's.)
+| Stage | Skill | You | It writes |
+|---|---|---|---|
+| **spec** | `/kentra-rpir:spec` | answer questions until you agree | `spec.md` |
+| **plan** | `/kentra-rpir:plan` | approve | `plan.yaml` |
+| **implement** | `/kentra-rpir:implement` | settle what the orchestrator asks | code, `impl-report.md` |
+| **review** | `/kentra-rpir:review` | review the code and the retro | `spec-retro.md` |
 
-Companion primitive to [`adr-sourced-constitution`](https://github.com/kentra-io/adr-sourced-constitution) — the same event-sourcing invariants (append-only events, derived projections, tool-only writes, verifiable fidelity), applied to the functional *what* instead of the architectural *how*. The plan stage delegates to [`milestoned-plan-dag`](https://github.com/kentra-io/milestoned-plan-dag): a change's `plan.yaml` is authored with that primitive's `plan-author` skill and validated by shelling out to its CLI — a process boundary, no Go import.
+It is RPI (Research → Plan → Implement) with an explicit Review stage, for a solo
+founder:
 
-**Status: live.** See [spec-lifecycle.md](./spec-lifecycle.md) for the original design specification (historical — see its status banner) and `openspec/specs/` for the living spec.
+- **Files are the handoff.** Each stage reads the previous stage's file, not
+  its conversation.
+- **Checked against the source.** An independent reviewer checks the spec and
+  the plan against the conversation, the spec, the project's rules and its
+  constitution. Research agents check every premise with a docs check, and
+  spike only a critical premise the docs don't settle.
+- **Parallel, verified implementation.** Milestones from the plan's DAG run in
+  parallel git worktrees. Each one is checked by a fresh verifier before it
+  merges.
+- **The process records itself.** The spec and plan sessions are kept as a
+  trimmed, redacted log in the change folder; the retro reads every session's
+  transcript, not the agents' account of their work.
 
-## Shape
+Everything for one change lives in `docs/changes/<date>-<slug>/`. See
+[`docs/process.md`](docs/process.md) for the whole process.
 
-- **Layer 1** — `lifecycle` CLI (single static Go binary, deterministic, no LLM, no external language runtime): `init` · `validate` · `approve` · `status` · `archive` · `guard`. YAML parse, JSON-Schema validation, fold, and markdown render are all in-process (constitution ADR-0004).
-- **Layer 2** — agent-agnostic skills (SKILL.md standard), fanned out by `lifecycle init` to the configured runtime trees: stage conduct (`lifecycle-refine`, `lifecycle-design`, `lifecycle-plan`), intake (`lifecycle-new-feature`, `lifecycle-bug`), archive discipline (`lifecycle-archive`), setup (`lifecycle-init`). `lifecycle-plan` delegates `plan.yaml`'s grammar and CLI validation to `milestoned-plan-dag`'s `plan-author` skill.
-- **Layer 3** — integrations: the `kentra-spec-lifecycle` schema descriptor + published JSON Schemas (`living-spec.schema.json`, `spec-delta.schema.json`), the constitution seam (plan-gate at gates 2/3), the `milestoned-plan-dag` seam (plan gate + archive step-completion gate), engine/CI record consumers.
+## Install
 
-Correctness is proven by checked-in golden projection fixtures (source YAML ↔ expected markdown, byte-identical) plus `lifecycle guard`'s from-empty replay (constitution ADR-0003/ADR-0005).
+```
+/plugin marketplace add kentra-io/kentra-agentic-plugins
+/plugin install kentra-rpir@kentra-agentic-plugins
+brew install kentra-io/tap/milestoned-plan-dag
+```
 
-MIT.
+Needs `milestoned-plan-dag` 0.2.0 or later and `jq` 1.6 or later.
+
+Optional: [`adr-sourced-constitution`](https://github.com/kentra-io/adr-sourced-constitution)
+for a project constitution that every stage reads.
+
+## Configure
+
+The first `/kentra-rpir:spec` in a project writes `.kentra-rpir.yaml`. Models and
+agents per role, question batch size, worktree location and research settings
+live there — see [`templates/kentra-rpir.yaml`](templates/kentra-rpir.yaml).
+
+## History
+
+This repository was `spec-lifecycle`: a gated, OpenSpec-format lifecycle with a
+Go CLI. Its last release is v0.2.0; the history is in git.
+
+## License
+
+MIT

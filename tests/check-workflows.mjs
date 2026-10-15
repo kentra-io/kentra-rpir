@@ -202,11 +202,15 @@ for (const f of readdirSync(dir).filter(f => f.endsWith('.js'))) {
   for (const [caseName, c] of Object.entries(fx)) {
     try {
       const { result, calls } = await runCase(run, c.args, { overrides: c.overrides })
-      for (const [desc, assert] of Object.entries(c.expect || {})) {
-        if (assert(result, calls)) ok(wf, `${caseName}: ${desc}`)
-        else fail(wf, `${caseName}: ${desc}`)
+      if (c.throws) {
+        fail(wf, `${caseName}: expected a throw matching ${c.throws}, but it completed`)
+      } else {
+        for (const [desc, assert] of Object.entries(c.expect || {})) {
+          if (assert(result, calls)) ok(wf, `${caseName}: ${desc}`)
+          else fail(wf, `${caseName}: ${desc}`)
+        }
+        if (!c.expect) ok(wf, `${caseName}: runs`)
       }
-      if (!c.expect) ok(wf, `${caseName}: runs`)
     } catch (e) {
       if (c.throws && c.throws.test(e.message)) ok(wf, `${caseName}: throws as expected`)
       else fail(wf, `${caseName}: threw ${e.stack}`)

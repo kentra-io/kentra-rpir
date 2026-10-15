@@ -321,7 +321,12 @@ Merge them into one review:
 - Where two reviewers' answers conflict — one milestone uses a type another says it never introduces, say — read the plan and settle it; keep the answer the plan supports.
 - Compare across milestones for what no single reviewer could see: a signature introduced in one milestone and used differently in another, the same file created twice, a helper two milestones both build. Add each as a "no" under the check it breaks.
 - unchecked_claims: one entry per distinct claim; merge duplicates and keep the higher importance.
-${silent.length ? `- These reviewers returned nothing: ${silent.join(', ')}. Answer their checks yourself — for a milestone: ${MILESTONE_CHECKS.map(([id]) => id).join(', ')}; plan-wide: ${PLANWIDE_CHECKS.map(([id]) => id).join(', ')}. The milestone fragments: ${JSON.stringify(milestones)}; the plan-level head: ${head}.\n` : ''}
+${silent.length ? `- These reviewers returned nothing: ${silent.join(', ')}. Answer their checks yourself — for a milestone: ${MILESTONE_CHECKS.map(([id]) => id).join(', ')}; plan-wide: ${PLANWIDE_CHECKS.map(([id]) => id).join(', ')}. The milestone fragments: ${JSON.stringify(milestones)}; the plan-level head: ${head}.
+
+${sourceBlock}
+
+${projectRules}
+\n` : ''}
 The checks, for reference:
 ${list(PLAN_CHECKS)}
 

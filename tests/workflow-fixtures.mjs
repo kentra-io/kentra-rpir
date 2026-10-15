@@ -505,6 +505,20 @@ export const fixtures = {
         'triage reads the consolidated noes': (_, c) => c.agents.find(a => a.label === 'triage').prompt.includes('P6@cli'),
       },
     },
+    'split plan review: a silent reviewer — consolidator prompt carries the sources': {
+      args: {
+        today: '2026-10-13', stage: 'plan', document: '/p/plan.yaml', projectRoot: '/p', spec: '/p/spec.md', reviewer: roles.reviewer, research,
+        fragments: { head: '/p/draft/head.yaml', milestones: [{ slug: 'core', file: '/p/draft/milestones/01-core.yaml' }] },
+      },
+      overrides: {
+        'review:core': null,
+        'review:plan': { checks: [{ id: 'P1', answer: 'yes', evidence: '' }], unchecked_claims: [] },
+        consolidate: { checks: [{ id: 'P1', answer: 'yes', evidence: '' }], unchecked_claims: [] },
+      },
+      expect: {
+        'consolidator prompt carries the sourceBlock for the silent reviewer': (_, c) => c.agents.find(a => a.label === 'consolidate').prompt.includes('Sources to check it against'),
+      },
+    },
     'split plan review: consolidator returning null throws': {
       args: {
         today: '2026-10-13', stage: 'plan', document: '/p/plan.yaml', projectRoot: '/p', spec: '/p/spec.md', reviewer: roles.reviewer, research,

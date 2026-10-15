@@ -75,7 +75,7 @@ const PLAN_CHECKS = [
   ['P4', 'Every new dependency is pinned to an exact version, in the earliest milestone that needs it.'],
   ['P5', 'Milestones with no dependency path between them in the output of `milestoned-plan-dag resolve <plan>` (its `depends_on` edges; run it) have non-overlapping paths. Order in the file creates no edge.'],
   ['P6', P6],
-  ['P7', 'Every criterion names the test that proves it and states given, when and then in full.'],
+  ['P7', 'Every criterion names the test that proves it, or `human:` and what the user checks when no test or command can prove it, and states given, when and then in full.'],
   ['P8', 'rules hold references only (skill names or paths), leave out auto-loaded CLAUDE.md/AGENTS.md and path-scoped .claude/rules, and every entry bears on the files of the milestones it applies to.'],
   ['P9', 'No milestone conflicts with a constitution rule (answer yes when there is no constitution).'],
   ['P10', 'No milestone conflicts with a project rule governing its files.'],

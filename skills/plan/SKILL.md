@@ -143,7 +143,9 @@ spec's `P<n>`:
     `test` form holds file lists only;
   - `contract` — the repo's standard `check`; one criterion per behaviour,
     named after the test that proves it, with given/when/then at the level
-    of the spec's requirement; and `paths`;
+    of the spec's requirement; a behaviour no test or command can prove —
+    how a page looks, say — names `human:` and what the user checks in
+    place of a test; and `paths`;
   - `depends-on` — every milestone whose output this one uses. A milestone
     without `depends-on` is a root and starts at once;
   - `rules` — references only (a skill name or a repo path) to what the

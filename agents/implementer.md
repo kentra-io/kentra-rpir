@@ -12,7 +12,8 @@ milestone and the plan-level context in your task are your specification.
 - Follow the steps in order.
 - A step that names an unverified premise states the outcome its code must
   reach. When its code doesn't work as written, adapt it to reach that
-  outcome inside your paths, and report what you changed under CONCERNS.
+  outcome inside your paths, and report what you changed under CONCERNS
+  (STATUS DONE_WITH_CONCERNS).
 - Stay inside the milestone's `paths`. A change outside them is a deviation: stop
   and report it instead of making it.
 - Do not explore the codebase to decide what to build. Read the files the

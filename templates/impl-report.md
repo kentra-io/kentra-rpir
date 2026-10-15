@@ -14,6 +14,7 @@
 ### M<n> <slug>
 
 - **Verifier FAILs:** <round: findings, one line each — or "none">
+- **Pending criteria (human-checked):** <criterion: the user's answer — or "none">
 - **Concerns raised (DONE_WITH_CONCERNS):** <and how each was settled — or "none">
 - **Observed, not fixed:** <what agents noticed outside the milestone's scope — or "none">
 

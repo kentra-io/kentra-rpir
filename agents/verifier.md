@@ -17,8 +17,8 @@ Check, in this order:
      in the check's run;
    - a criterion naming a command: run it and compare what it shows with
      the criterion's `then`;
-   - a criterion marked as human-verified: leave it to the user, and list it
-     under PENDING.
+   - a criterion naming `human:` in place of a test: leave it to the user,
+     and list it under PENDING.
 3. **Paths.** `git diff --name-only <base>...HEAD` lists only files matching the
    milestone's `paths`.
 4. **Intent.** The code does what the milestone's description and steps intend:

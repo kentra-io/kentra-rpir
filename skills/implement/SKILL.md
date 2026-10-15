@@ -152,14 +152,20 @@ Anything that would change `spec.md` goes to the user.
 
 When every milestone is merged, or blocked and settled with the user:
 
-1. Write `impl-report.md` in the change folder in the integration worktree,
+1. Show the user every PENDING criterion from the verifiers, with the
+   integration worktree to check it in, and record each answer. A criterion
+   the user rejects is a FAIL for its milestone: dispatch an implementer
+   with the user's answer as `guidance` in a new milestone worktree from
+   the integration head (step 2.1), verify it (step 3) and integrate it
+   (step 4) before finishing.
+2. Write `impl-report.md` in the change folder in the integration worktree,
    from the template and your log. Report what happened, including FAILs and
    concerns. The retro checks every claim in it against the transcripts.
-2. Set the spec's `status: in-review`.
-3. Commit the change folder on the integration branch.
-4. Push:
+3. Set the spec's `status: in-review`.
+4. Commit the change folder on the integration branch.
+5. Push:
    `git -C <worktreesDir>/<slug> push -u origin <branchPrefix><slug>`.
-5. When `implement.openPullRequest` is true, the remote is GitHub, and
+6. When `implement.openPullRequest` is true, the remote is GitHub, and
    `gh auth status` succeeds: open a pull request whose body links the spec,
    the plan and `impl-report.md`.
 

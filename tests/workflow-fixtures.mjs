@@ -6,7 +6,7 @@ const roles = {
   reader: { agent: 'kentra-rpir:retro', model: 'sonnet' },
   retro: { agent: 'kentra-rpir:retro', model: 'opus' },
 }
-const research = { workflow: 'kentra-rpir:research', checker: 'sonnet', designer: 'opus', runner: 'sonnet', reasoner: 'opus' }
+const research = { workflow: 'kentra-rpir:research', checker: 'sonnet', designer: 'opus', reasoner: 'opus' }
 const SPIKE_DIR = '/p/c/research/spikes'
 const OUT_DIR = '/p/c/research'
 // Mirrors workflows/research.js's READABLE_SPIKES constant verbatim (E2 + the
@@ -268,13 +268,13 @@ export const fixtures = {
         // executes workflows/research.js for real); its one tier-1 checker call
         // falls through to this override returning null, so research.failed
         // carries the claim exactly like a real refutation would.
-        'check:1-jackson-2-18-supports-records': null,
+        'check:plan-review-jackson-2-18-supports-records': null,
         triage: { findings: [{ check: 'P4', kind: 'technical', summary: 'pin jackson', evidence: 'plan.yaml:40', fix: 'pin 2.18.2' }], research_outcomes: [] },
       },
       expect: {
         'research workflow called with the claim': (_, c) => c.workflows.length === 1 && c.workflows[0].name === 'kentra-rpir:research' && c.workflows[0].args.topics[0].name === 'Jackson 2.18 supports records',
-        'research gets checker, designer, runner, reasoner and spikeDir': (_, c) => c.workflows[0].args.checker === 'sonnet' && c.workflows[0].args.designer === 'opus' && c.workflows[0].args.runner === 'sonnet' && c.workflows[0].args.reasoner === 'opus' && c.workflows[0].args.spikeDir === SPIKE_DIR,
-        'claim topic carries an index-prefixed, short slug': (_, c) => c.workflows[0].args.topics[0].slug === '1-jackson-2-18-supports-records' && c.workflows[0].args.topics[0].slug.length <= 60,
+        'research gets checker, designer, reasoner, spikeDir and the stage prefix': (_, c) => c.workflows[0].args.checker === 'sonnet' && c.workflows[0].args.designer === 'opus' && c.workflows[0].args.reasoner === 'opus' && c.workflows[0].args.spikeDir === SPIKE_DIR && c.workflows[0].args.prefix === 'plan-review',
+        'claim topic carries no slug (research names it)': (_, c) => c.workflows[0].args.topics[0].slug === undefined,
         'claim topic carries its importance': (_, c) => c.workflows[0].args.topics[0].importance === 'normal',
         'plan checklist used': (_, c) => c.agents[0].prompt.includes('P12'),
         'triage ran': (_, c) => c.agents.some(a => a.label === 'triage'),
@@ -289,16 +289,13 @@ export const fixtures = {
           checks: [{ id: 'P4', answer: 'no', evidence: 'x' }],
           unchecked_claims: [{ claim: 'Same claim text', why: 'a', importance: 'normal' }, { claim: 'Same claim text', why: 'b', importance: 'normal' }],
         },
-        'check:1-same-claim-text': null,
-        'check:2-same-claim-text': null,
+        'check:plan-review-same-claim-text': null,
+        'check:plan-review-same-claim-text-2': null,
         triage: { findings: [], research_outcomes: [] },
       },
       expect: {
         'both claims sent to research': (_, c) => c.workflows[0].args.topics.length === 2,
-        'duplicate claim text still gets unique, index-prefixed slugs': (_, c) => {
-          const [s1, s2] = c.workflows[0].args.topics.map(t => t.slug)
-          return s1 === '1-same-claim-text' && s2 === '2-same-claim-text' && s1 !== s2
-        },
+        'research dedupes the duplicate names': (_, c) => c.agents.filter(a => a.label.startsWith('check:')).map(a => a.label).sort().join() === 'check:plan-review-same-claim-text,check:plan-review-same-claim-text-2',
       },
     },
     'claims already in the ledger are skipped': {
@@ -436,6 +433,90 @@ export const fixtures = {
         triage: null,
       },
       throws: /triage returned no result/,
+    },
+    'light tier: only critical claims researched; normal ones come back unverified': {
+      args: { today: '2026-10-13', stage: 'spec', tier: 'light', document: '/p/spec.md', projectRoot: '/p', transcripts: ['/p/s.jsonl'], constitution: null, reviewer: roles.reviewer, research, spikeDir: SPIKE_DIR },
+      overrides: {
+        review: {
+          checks: [{ id: 'S1', answer: 'yes', evidence: '' }],
+          unchecked_claims: [
+            { claim: 'Shape claim', why: 'decides the milestones', importance: 'critical' },
+            { claim: 'Local claim', why: 'one milestone', importance: 'normal' },
+          ],
+        },
+        triage: { findings: [], research_outcomes: [] },
+      },
+      nullsOk: true,
+      expect: {
+        'one research topic, the critical one': (_, c) => c.workflows.length === 1 && c.workflows[0].args.topics.length === 1 && c.workflows[0].args.topics[0].name === 'Shape claim',
+        'the normal claim is returned unverified, not researched': r => r.research.some(o => o.claim === 'Local claim' && o.status === 'unverified' && /light tier/.test(o.evidence)),
+        'result carries the tier': r => r.tier === 'light',
+      },
+    },
+    'light tier, only normal claims: no research, no triage': {
+      args: { today: '2026-10-13', stage: 'spec', tier: 'light', document: '/p/spec.md', projectRoot: '/p', transcripts: ['/p/s.jsonl'], constitution: null, reviewer: roles.reviewer, research },
+      overrides: { review: { checks: [{ id: 'S1', answer: 'yes', evidence: '' }], unchecked_claims: [{ claim: 'Local only', why: 'w', importance: 'normal' }] } },
+      expect: {
+        'no workflow() call': (_, c) => c.workflows.length === 0,
+        'no triage': (_, c) => !c.agents.some(a => a.label === 'triage'),
+        'the claim comes back unverified': r => r.research.length === 1 && r.research[0].status === 'unverified',
+      },
+    },
+    'reviewer prompt carries the claim rule': {
+      args: { today: '2026-10-13', stage: 'spec', document: '/p/spec.md', projectRoot: '/p', transcripts: ['/p/s.jsonl'], constitution: null, reviewer: roles.reviewer, research },
+      overrides: { review: { checks: [{ id: 'S1', answer: 'yes', evidence: '' }], unchecked_claims: [] } },
+      expect: {
+        'claims are only those that would change the document': (_, c) => c.agents[0].prompt.includes('would change if it were wrong'),
+        'critical means the shape changes': (_, c) => c.agents[0].prompt.includes('the shape changes'),
+      },
+    },
+    'skeleton mode: single reviewer, skeleton checks only': {
+      args: { today: '2026-10-13', stage: 'plan', mode: 'skeleton', document: '/p/plan.yaml', projectRoot: '/p', spec: '/p/spec.md', reviewer: roles.reviewer, research },
+      overrides: { 'review:skeleton': { checks: [{ id: 'P1', answer: 'yes', evidence: '' }], unchecked_claims: [] } },
+      expect: {
+        'one agent, labelled review:skeleton': (_, c) => c.agents.length === 1 && c.agents[0].label === 'review:skeleton',
+        'asks P1, P2, P4, P5, P11, P12 but not P6 or P7': (_, c) => ['P1.', 'P2.', 'P4.', 'P5.', 'P11.', 'P12.'].every(id => c.agents[0].prompt.includes(id)) && !c.agents[0].prompt.includes('P6.') && !c.agents[0].prompt.includes('P7.'),
+        'says the steps are placeholders': (_, c) => c.agents[0].prompt.includes('placeholder'),
+        'result mode is skeleton': r => r.mode === 'skeleton',
+      },
+    },
+    'split plan review: one reviewer per milestone, one plan-wide, then consolidate': {
+      args: {
+        today: '2026-10-13', stage: 'plan', document: '/p/plan.yaml', projectRoot: '/p', spec: '/p/spec.md', reviewer: roles.reviewer, research, spikeDir: SPIKE_DIR,
+        fragments: { head: '/p/draft/head.yaml', milestones: [{ slug: 'core', file: '/p/draft/milestones/01-core.yaml' }, { slug: 'cli', file: '/p/draft/milestones/02-cli.yaml' }] },
+      },
+      overrides: {
+        'review:core': { checks: [{ id: 'P6', answer: 'yes', evidence: '' }], unchecked_claims: [{ claim: 'Dup claim', why: 'a', importance: 'normal' }] },
+        'review:cli': { checks: [{ id: 'P6', answer: 'no', evidence: 'no code in step 2' }], unchecked_claims: [{ claim: 'Dup claim', why: 'b', importance: 'critical' }] },
+        'review:plan': { checks: [{ id: 'P1', answer: 'yes', evidence: '' }], unchecked_claims: [] },
+        consolidate: { checks: [{ id: 'P6@cli', answer: 'no', evidence: 'no code in step 2' }], unchecked_claims: [{ claim: 'Dup claim', why: 'b', importance: 'critical' }] },
+        'check:plan-review-dup-claim': null,
+        triage: { findings: [{ check: 'P6@cli', kind: 'technical', summary: 's', evidence: 'e', fix: 'f' }], research_outcomes: [] },
+      },
+      nullsOk: true,
+      expect: {
+        'per-milestone reviewers ran': (_, c) => ['review:core', 'review:cli', 'review:plan'].every(l => c.agents.some(a => a.label === l)),
+        'milestone reviewer reads its fragment and the head': (_, c) => { const p = c.agents.find(a => a.label === 'review:core').prompt; return p.includes('/p/draft/milestones/01-core.yaml') && p.includes('/p/draft/head.yaml') },
+        'milestone reviewer asks P6 and P7, not P1 or P5': (_, c) => { const p = c.agents.find(a => a.label === 'review:core').prompt; return p.includes('P6.') && p.includes('P7.') && !p.includes('P1.') && !p.includes('P5.') },
+        'plan-wide reviewer asks P1, P4, P5, P12 and runs resolve': (_, c) => { const p = c.agents.find(a => a.label === 'review:plan').prompt; return ['P1.', 'P4.', 'P5.', 'P12.'].every(id => p.includes(id)) && p.includes('milestoned-plan-dag resolve') },
+        'consolidator sees every reviewer': (_, c) => { const p = c.agents.find(a => a.label === 'consolidate').prompt; return p.includes('no code in step 2') && p.includes('Dup claim') },
+        'research runs on the consolidated claims only': (_, c) => c.workflows.length === 1 && c.workflows[0].args.topics.length === 1,
+        'research checked it': (_, c) => c.agents.some(a => a.label === 'check:plan-review-dup-claim'),
+        'triage reads the consolidated noes': (_, c) => c.agents.find(a => a.label === 'triage').prompt.includes('P6@cli'),
+      },
+    },
+    'split plan review: consolidator returning null throws': {
+      args: {
+        today: '2026-10-13', stage: 'plan', document: '/p/plan.yaml', projectRoot: '/p', spec: '/p/spec.md', reviewer: roles.reviewer, research,
+        fragments: { head: '/p/draft/head.yaml', milestones: [{ slug: 'core', file: '/p/draft/milestones/01-core.yaml' }] },
+      },
+      overrides: { consolidate: null },
+      throws: /consolidator returned no result/,
+    },
+    'P5 is judged from the resolve output': {
+      args: { today: '2026-10-13', stage: 'plan', document: '/p/plan.yaml', projectRoot: '/p', spec: '/p/spec.md', reviewer: roles.reviewer, research },
+      overrides: { review: { checks: [{ id: 'P1', answer: 'yes', evidence: '' }], unchecked_claims: [] } },
+      expect: { 'P5 names resolve': (_, c) => /P5\. [^\n]*milestoned-plan-dag resolve/.test(c.agents[0].prompt) },
     },
   },
   'spec-retro': {

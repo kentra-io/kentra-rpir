@@ -109,7 +109,7 @@ Extract signals from an implementation session. The orchestrator transcript is $
 Milestones:
 ${milestoneList}
 
-For each milestone, count: implementer dispatches, verifier FAIL verdicts, errors and non-zero exits, test runs, and verifyRounds (verifier dispatches). Measure its cost from its subagent transcripts: freshTokens is the sum of usage.input_tokens + usage.cache_creation_input_tokens + usage.output_tokens over assistant messages, counting each message.id once; wallMs runs from the first to the last timestamp across those transcripts. List files written outside its paths, and the transcript files that belong to it. Mark it blocked if it was never merged. For the orchestrator transcript itself, give orchestrator.freshTokens (the same sum) and orchestrator.wallMs. Record the Claude Code version (the "version" field on transcript lines) and the number of compact_boundary markers.
+For each milestone, count: implementer dispatches, verifier FAIL verdicts, errors and non-zero exits, test runs, and verifyRounds (verifier dispatches). Measure its cost from its subagent transcripts: freshTokens is the sum of usage.input_tokens + usage.cache_creation_input_tokens + usage.output_tokens over assistant messages, counting each message.id once, from its last transcript line (a message spans several lines and its output_tokens grows across them); wallMs runs from the first to the last timestamp across those transcripts. List files written outside its paths, and the transcript files that belong to it. Mark it blocked if it was never merged. For the orchestrator transcript itself, give orchestrator.freshTokens (the same sum) and orchestrator.wallMs. Record the Claude Code version (the "version" field on transcript lines) and the number of compact_boundary markers.
 
 Then write a skeleton timeline per milestone: one event per dispatch, verdict, error, retry, user message and merge, each with its ref <file>:<line>.
 
@@ -133,6 +133,10 @@ Use jq and grep through Bash; read leniently and skip lines you cannot parse. Yo
 const prepasses = prepassResults.slice(0, implSessions.length)
 const planningPrepasses = prepassResults.slice(implSessions.length)
 
+// Unmeasured cost stays null (not 0): a field no pre-pass reported is unknown,
+// not zero. Adds only the operands that are numbers; null + null stays null.
+const addCost = (a, b) => (typeof a === 'number' || typeof b === 'number') ? (typeof a === 'number' ? a : 0) + (typeof b === 'number' ? b : 0) : null
+
 const signals = new Map()
 const skeletons = new Map()
 for (const p of prepasses.filter(Boolean)) {
@@ -147,10 +151,10 @@ for (const p of prepasses.filter(Boolean)) {
       errors: prev.errors + m.errors,
       blocked: prev.blocked && m.blocked,
       transcripts: [...(prev.transcripts || []), ...(m.transcripts || [])],
-      verifyRounds: (prev.verifyRounds || 0) + (m.verifyRounds || 0),
-      freshTokens: (prev.freshTokens || 0) + (m.freshTokens || 0),
-      wallMs: Math.max(prev.wallMs || 0, m.wallMs || 0),
-    } : m)
+      verifyRounds: addCost(prev.verifyRounds, m.verifyRounds),
+      freshTokens: addCost(prev.freshTokens, m.freshTokens),
+      wallMs: addCost(prev.wallMs, m.wallMs),
+    } : { ...m, verifyRounds: addCost(undefined, m.verifyRounds), freshTokens: addCost(undefined, m.freshTokens), wallMs: addCost(undefined, m.wallMs) })
   }
   for (const sk of p.skeletons || []) skeletons.set(sk.slug, [...(skeletons.get(sk.slug) || []), ...sk.events])
 }
@@ -159,12 +163,12 @@ const claudeCodeVersion = prepasses.find(p => p?.claudeCodeVersion)?.claudeCodeV
 const implementation = {
   milestones: args.milestones.map(m => {
     const s = signals.get(m.slug) || {}
-    return { number: m.number, slug: m.slug, dispatches: s.dispatches || 0, verifyRounds: s.verifyRounds || 0, freshTokens: s.freshTokens || 0, wallMs: s.wallMs || 0 }
+    return { number: m.number, slug: m.slug, dispatches: s.dispatches || 0, verifyRounds: s.verifyRounds ?? null, freshTokens: s.freshTokens ?? null, wallMs: s.wallMs ?? null }
   }),
   orchestrator: prepasses.filter(Boolean).reduce((o, p) => ({
-    freshTokens: o.freshTokens + (p.orchestrator?.freshTokens || 0),
-    wallMs: o.wallMs + (p.orchestrator?.wallMs || 0),
-  }), { freshTokens: 0, wallMs: 0 }),
+    freshTokens: addCost(o.freshTokens, p.orchestrator?.freshTokens),
+    wallMs: addCost(o.wallMs, p.orchestrator?.wallMs),
+  }), { freshTokens: null, wallMs: null }),
 }
 
 const troubled = s => !s || s.blocked || s.dispatches > 1 || s.verifierFails > 0 || s.errors > 0 || s.writesOutsidePaths.length > 0 || s.testRuns === 0
@@ -352,7 +356,7 @@ ${missing.length ? `Missing transcripts — list these in Open questions too: ${
 
 Readers (timelines): ${readsJson}
 Planning cost metrics (JSON): ${JSON.stringify(planning)}
-Implementation cost (JSON): ${JSON.stringify(implementation)}
+Implementation cost (JSON): ${JSON.stringify(implementation)} A null field was not measured; write — for it.
 Synthesis: ${JSON.stringify(synthesis)}
 Reconciliation (only the contradicted and unsupported claims; ${confirmedCount} other claims were confirmed): ${JSON.stringify(notConfirmed)}
 Remediation: ${JSON.stringify(remediation)}

@@ -23,7 +23,7 @@ Question rounds: <n> · Status resets: <n> · Full reviews: spec <n>, plan <n> �
 |---|---|---|---|---|
 | M<n> <slug> | <n> | <n> | <n> | <m.m> min |
 
-Orchestrator: <n> fresh tokens · <m> min wall. Fresh tokens = input + cache writes + output, each message counted once; the planning workflow totals above use the harness's own count, so compare within a table, not across tables.
+Orchestrator: <n> fresh tokens · <m> min wall. Fresh tokens = input + cache writes + output, each message counted once; the planning workflow totals above use the harness's own count, so compare within a table, not across tables. — means not measured.
 
 ## Self-report reconciliation
 

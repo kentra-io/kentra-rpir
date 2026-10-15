@@ -758,5 +758,33 @@ export const fixtures = {
         'returns the implementation cost': r => r.implementation && r.implementation.milestones.length === 2 && r.implementation.orchestrator.freshTokens === 80000,
       },
     },
+    'two implement sessions sum a shared milestone\'s cost': {
+      args: { ...specRetroArgs, sessions: [...specRetroArgs.sessions, { id: 's3', stage: 'implement', path: '/p/s3.jsonl' }] },
+      overrides: {
+        ...specRetroPrepassOverride,
+        'prepass:s3': { milestones: [
+          { slug: 'cli', dispatches: 1, verifierFails: 0, writesOutsidePaths: [], testRuns: 1, errors: 0, blocked: false, verifyRounds: 1, freshTokens: 60000, wallMs: 400000 },
+        ], skeletons: [] },
+      },
+      expect: {
+        'cli cost sums across both sessions': r => {
+          const cli = r.implementation.milestones.find(m => m.slug === 'cli')
+          return cli.verifyRounds === 3 && cli.freshTokens === 400000 && cli.wallMs === 1300000
+        },
+      },
+    },
+    'a pre-pass with no cost fields leaves the milestone unmeasured, not zero': {
+      args: specRetroArgs,
+      overrides: {
+        'prepass:s2': { claudeCodeVersion: '2.1.296', milestones: [
+          { slug: 'core', dispatches: 1, verifierFails: 0, writesOutsidePaths: [], testRuns: 2, errors: 0, blocked: false },
+          { slug: 'cli', dispatches: 3, verifierFails: 1, writesOutsidePaths: [], testRuns: 3, errors: 2, blocked: false },
+        ], skeletons: [] },
+      },
+      expect: {
+        'milestone cost is null, not zero': r => r.implementation.milestones.every(m => m.freshTokens === null && m.wallMs === null),
+        'orchestrator cost is null, not zero': r => r.implementation.orchestrator.freshTokens === null && r.implementation.orchestrator.wallMs === null,
+      },
+    },
   },
 }

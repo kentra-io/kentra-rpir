@@ -7,12 +7,12 @@ const roles = {
   retro: { agent: 'kentra-rpir:retro', model: 'opus' },
 }
 const research = { workflow: 'kentra-rpir:research', checker: 'sonnet', designer: 'opus', runner: 'sonnet', reasoner: 'opus' }
-const SPIKE_DIR = '/p/.kentra-rpir/spikes/demo'
+const SPIKE_DIR = '/p/c/research/spikes'
 const OUT_DIR = '/p/c/research'
 // Mirrors workflows/research.js's READABLE_SPIKES constant verbatim (E2 + the
 // E3 sentence), so the readable-spike test can assert the full rule — not
 // just a substring — reaches every spiking prompt.
-const READABLE_SPIKES = 'Spikes must be readable by the user approving them. Write each spike as a file with the Write tool, then run it with one short command such as `sh <file>`. Never use heredocs, inline `python3 -c`/`sh -c`/`node -e` programs, chained or piped commands, `&`, command substitution or redirects, and never run anything that reads stdin. Work only under `<spikeDir>/<slug>/`. Never run `git init` there or anywhere else.'
+const READABLE_SPIKES = 'Spikes must be readable by the user approving them. Write each spike as a file with the Write tool, then run it with one short command such as `sh <file>`. Never use heredocs, inline `python3 -c`/`sh -c`/`node -e` programs, chained or piped commands, `&`, command substitution or redirects, and never run anything that reads stdin. Write and run experiments only under `<spikeDir>/<slug>/`. Never run `git init` there or anywhere else.'
 
 const specRetroArgs = {
   today: '2026-10-11', changeDir: '/p/docs/changes/2026-10-11-demo', projectRoot: '/p',
@@ -71,7 +71,7 @@ export const fixtures = {
       nullsOk: true,
       expect: {
         '1 design agent, on opus': (_, c) => c.agents.filter(a => a.label.startsWith('design:')).length === 1 && c.agents.find(a => a.label.startsWith('design:')).model === 'opus',
-        '2 run agents, on sonnet': (_, c) => c.agents.filter(a => a.label.startsWith('run:')).length === 2 && c.agents.filter(a => a.label.startsWith('run:')).every(a => a.model === 'sonnet'),
+        'no run agents': (_, c) => !c.agents.some(a => a.label.startsWith('run:')),
         '1 judge agent, on opus': (_, c) => c.agents.filter(a => a.label.startsWith('judge:')).length === 1 && c.agents.find(a => a.label.startsWith('judge:')).model === 'opus',
         'report is spike-depth with spike evidence': r => r.reports[0].depth === 'spike' && r.reports[0].evidence.startsWith('spike: research/spikes/'),
       },
@@ -105,7 +105,7 @@ export const fixtures = {
       nullsOk: true,
       expect: {
         '1 design agent runs': (_, c) => c.agents.filter(a => a.label.startsWith('design:')).length === 1,
-        '1 run agent runs': (_, c) => c.agents.filter(a => a.label.startsWith('run:')).length === 1,
+        'no run agents': (_, c) => !c.agents.some(a => a.label.startsWith('run:')),
         '1 judge agent runs': (_, c) => c.agents.filter(a => a.label.startsWith('judge:')).length === 1,
       },
     },
@@ -152,7 +152,7 @@ export const fixtures = {
     'models are overridable': {
       args: {
         today: '2026-10-11', topics: [{ name: 'model override check', importance: 'critical' }], spikeDir: SPIKE_DIR,
-        checker: 'opus', designer: 'sonnet', runner: 'haiku', reasoner: 'sonnet',
+        checker: 'opus', designer: 'sonnet', reasoner: 'sonnet',
       },
       overrides: {
         'check:model-override-check': { verdict: 'verified', confidence: 'low', evidence: [], summary: 's', gaps: [] },
@@ -165,7 +165,6 @@ export const fixtures = {
       expect: {
         'checker model reaches check:': (_, c) => c.agents.find(a => a.label.startsWith('check:')).model === 'opus',
         'designer model reaches design:': (_, c) => c.agents.find(a => a.label.startsWith('design:')).model === 'sonnet',
-        'runner model reaches run:': (_, c) => c.agents.find(a => a.label.startsWith('run:')).model === 'haiku',
         'reasoner model reaches judge:': (_, c) => c.agents.find(a => a.label.startsWith('judge:')).model === 'sonnet',
       },
     },
@@ -181,7 +180,6 @@ export const fixtures = {
       nullsOk: true,
       expect: {
         'design prompt includes the full readable-spikes rule, with the E3 sentence': (_, c) => c.agents.find(a => a.label.startsWith('design:')).prompt.includes(READABLE_SPIKES),
-        'run prompt includes the full readable-spikes rule, with the E3 sentence': (_, c) => c.agents.find(a => a.label.startsWith('run:')).prompt.includes(READABLE_SPIKES),
         'judge prompt includes the full readable-spikes rule, with the E3 sentence': (_, c) => c.agents.find(a => a.label.startsWith('judge:')).prompt.includes(READABLE_SPIKES),
         'check prompt says run no code': (_, c) => c.agents.find(a => a.label.startsWith('check:')).prompt.includes('Run no code'),
       },
@@ -190,26 +188,51 @@ export const fixtures = {
       args: { today: '2026-10-11', topics: [{ name: 'needs a spike', importance: 'critical' }] },
       throws: /spikes need args\.spikeDir/,
     },
-    'spikes go to spikeDir, kept copy to outDir': {
+    'spikes stay in spikeDir; result.md written there': {
       args: { today: '2026-10-11', topics: [{ name: 'keep the spike', importance: 'critical' }], spikeDir: SPIKE_DIR, outDir: OUT_DIR },
       overrides: {
         'check:keep-the-spike': { verdict: 'verified', confidence: 'low', evidence: [], summary: 's', gaps: [] },
         'design:keep-the-spike': {
-          experiments: [{ id: 'e1', file: `${SPIKE_DIR}/keep-the-spike/e1.sh`, command: `sh ${SPIKE_DIR}/keep-the-spike/e1.sh`, what: 'x' }],
+          experiments: [{ id: 'e1', file: `${SPIKE_DIR}/keep-the-spike/e1.sh`, command: `sh ${SPIKE_DIR}/keep-the-spike/e1.sh`, what: 'x', exit_code: 0, stdout: 'ok', stderr: '', timed_out: false }],
           not_spikeable: '',
         },
       },
       nullsOk: true,
       expect: {
-        'design prompt names the spikeDir path, not outDir': (_, c) => {
-          const p = c.agents.find(a => a.label.startsWith('design:')).prompt
-          return p.includes(`${SPIKE_DIR}/keep-the-spike/`) && !p.includes(OUT_DIR)
-        },
-        'judge prompt names the outDir spikes path and result.md': (_, c) => {
+        'design prompt names the spikeDir path': (_, c) => c.agents.find(a => a.label.startsWith('design:')).prompt.includes(`${SPIKE_DIR}/keep-the-spike/`),
+        'design prompt tells the designer to run each experiment': (_, c) => c.agents.find(a => a.label.startsWith('design:')).prompt.includes('Run each experiment'),
+        'judge re-runs and writes result.md in the spike dir': (_, c) => {
           const p = c.agents.find(a => a.label.startsWith('judge:')).prompt
-          return p.includes(`${OUT_DIR}/spikes/keep-the-spike/`) && p.includes('result.md')
+          return p.includes('Re-run every experiment') && p.includes(`${SPIKE_DIR}/keep-the-spike/result.md`)
+        },
+        'the reported file is the spike\'s result.md': r => r.reports[0].file === `${SPIKE_DIR}/keep-the-spike/result.md`,
+        'judge appends the spike verdict to the committed report': (_, c) => c.agents.find(a => a.label.startsWith('judge:')).prompt.includes(`${OUT_DIR}/keep-the-spike.md`),
+      },
+    },
+    'checker writes its own report: no write agents': {
+      args: { today: '2026-10-11', topics: [{ name: 'Kafka 4.1 headers', importance: 'normal' }], outDir: OUT_DIR, prefix: 'spec' },
+      overrides: { 'check:spec-kafka-4-1-headers': { verdict: 'verified', confidence: 'high', evidence: [{ kind: 'docs', url: 'u', excerpt: 'e' }], summary: 's', gaps: [] } },
+      nullsOk: true,
+      expect: {
+        'no write agents': (_, c) => !c.agents.some(a => a.label.startsWith('write:')),
+        'checker prompt names its report file': (_, c) => c.agents[0].prompt.includes(`${OUT_DIR}/spec-kafka-4-1-headers.md`),
+        'report carries the file path': r => r.reports[0].file === `${OUT_DIR}/spec-kafka-4-1-headers.md`,
+      },
+    },
+    'prefix and duplicate slugs': {
+      args: { today: '2026-10-11', topics: [{ name: 'Same topic' }, { name: 'Same topic' }], prefix: 'plan-review' },
+      nullsOk: true,
+      expect: {
+        'labels carry the prefix and stay unique': (_, c) => {
+          const labels = c.agents.filter(a => a.label.startsWith('check:')).map(a => a.label).sort()
+          return labels.join() === 'check:plan-review-same-topic,check:plan-review-same-topic-2'
         },
       },
+    },
+    'runner arg is ignored': {
+      args: { today: '2026-10-11', topics: [{ name: 'x' }], runner: 'sonnet' },
+      nullsOk: true,
+      expect: { 'still one checker, no runner': (_, c) => c.agents.length === 1 },
     },
   },
   'self-review': {

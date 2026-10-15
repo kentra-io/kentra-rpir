@@ -538,6 +538,20 @@ export const fixtures = {
         'the claim comes back unverified': r => r.research.length === 1 && r.research[0].status === 'unverified',
       },
     },
+    'light tier spec review: S3 allows unresearched normal premises': {
+      args: { today: '2026-10-13', stage: 'spec', tier: 'light', document: '/p/spec.md', projectRoot: '/p', transcripts: ['/p/s.jsonl'], constitution: null, reviewer: roles.reviewer, research },
+      overrides: { review: { checks: [{ id: 'S1', answer: 'yes', evidence: '' }], unchecked_claims: [] } },
+      expect: {
+        'S3 wording allows "—" at the light tier': (_, c) => c.agents[0].prompt.includes('not researched at the light tier'),
+      },
+    },
+    'full tier spec review: S3 requires evidence for every premise': {
+      args: { today: '2026-10-13', stage: 'spec', document: '/p/spec.md', projectRoot: '/p', transcripts: ['/p/s.jsonl'], constitution: null, reviewer: roles.reviewer, research },
+      overrides: { review: { checks: [{ id: 'S1', answer: 'yes', evidence: '' }], unchecked_claims: [] } },
+      expect: {
+        'S3 wording never mentions the light tier': (_, c) => !c.agents[0].prompt.includes('not researched at the light tier'),
+      },
+    },
     'reviewer prompt carries the claim rule': {
       args: { today: '2026-10-13', stage: 'spec', document: '/p/spec.md', projectRoot: '/p', transcripts: ['/p/s.jsonl'], constitution: null, reviewer: roles.reviewer, research },
       overrides: { review: { checks: [{ id: 'S1', answer: 'yes', evidence: '' }], unchecked_claims: [] } },

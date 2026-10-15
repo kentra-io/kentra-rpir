@@ -13,7 +13,8 @@ export const meta = {
 // args:
 //   today      (required) 'YYYY-MM-DD'
 //   topics     (required) [{ name, slug?, focus?, importance?: 'critical'|'normal', spike?: boolean }]
-//   prefix     (optional) the stage the research is for — 'spec', 'plan', 'spec-review', 'plan-review';
+//   prefix     (optional) the stage the research is for — 'spec', 'plan', or a self-review's
+//              '<stage>-review', '<stage>-skeleton-review', '<stage>-diff-review';
 //              every report and spike is named '<prefix>-<slug>'
 //   question, context, format, outDir, index
 //   spikeDir   (required when a topic can spike) absolute path of <change>/research/spikes (gitignored);

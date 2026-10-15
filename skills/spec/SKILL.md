@@ -1,6 +1,6 @@
 ---
 name: spec
-description: Turns an idea, bug or chore into an agreed spec.md for kentra-rpir — interactive questions in batches, background research checking every premise, an independent self-review. Use when starting a change, or when the user wants to write or revise a spec.
+description: Turns an idea, bug or chore into an agreed spec.md for kentra-rpir — interactive questions in batches, background research checking the premises that matter, an independent self-review. Use when starting a change, or when the user wants to write or revise a spec.
 ---
 
 # spec — stage 1 of kentra-rpir
@@ -80,9 +80,10 @@ questions, and no more.
   fixed inside one milestone.
 - **Tier.** The spec's `tier` comes from the config. When what you learn
   about the change fits the other tier better, recommend it with a one-line
-  reason and let the user choose: `light` fits a throwaway, a proof of
+  reason and let the user choose (`light` fits a throwaway, a proof of
   concept, a demo or a sandbox; `full` fits code that ships to users,
-  handles data or security, or that other code will build on.
+  handles data or security, or that other code will build on), then write
+  their choice into the spec's `tier`.
 
 ### 4. Research in the background
 
@@ -121,7 +122,8 @@ If you spike something yourself, outside the research workflow:
 > never run anything that reads stdin. Write and run experiments only under
 > `<spikeDir>/<slug>/`. Never run `git init` there or anywhere else.
 
-Write `result.md` beside the spike files in `<spikeDir>/<slug>/`.
+Name the folder `spec-<slug>` and write `result.md` beside the spike files
+in it.
 
 ### 5. Propose approaches
 

@@ -51,10 +51,13 @@ if (args.maxClaims !== undefined) log('maxClaims is no longer supported; every c
 const plan = args.stage === 'plan'
 const as = (label, phase, schema) => ({ label, phase, agentType: args.reviewer.agent, model: args.reviewer.model, schema })
 
+const S3 = tier === 'light'
+  ? ['S3', 'Every premise has an importance and a status (verified, refuted or unverified); every critical premise has evidence, and a normal premise may show "—" (not researched at the light tier).']
+  : ['S3', 'Every premise has an importance, a status (verified, refuted or unverified) and evidence.']
 const SPEC_CHECKS = [
   ['S1', 'Every decision the session reached appears in the spec, as it was decided.'],
   ['S2', 'The spec states nothing the session did not decide or the user did not agree to.'],
-  ['S3', 'Every premise has an importance, a status (verified, refuted or unverified) and evidence.'],
+  S3,
   ['S4', 'No requirement or design decision relies on a refuted premise.'],
   ['S5', 'Every requirement is a plain statement a test could check.'],
   ['S6', 'Non-goals include everything the session explicitly ruled out.'],

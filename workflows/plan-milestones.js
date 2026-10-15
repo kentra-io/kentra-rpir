@@ -67,7 +67,7 @@ You are done when ${m.file} holds the complete milestone and every claim your mi
 
 phase('Write')
 const written = await parallel(targets.map(m => () => agent(writePrompt(m), as(`write:${m.slug}`, 'Write'))))
-const missing = targets.filter((m, i) => !written[i]).map(m => m.slug)
+let missing = targets.filter((m, i) => !written[i]).map(m => m.slug)
 if (missing.length) log(`no result from the writer of: ${missing.join(', ')}`)
 const results = targets.map((m, i) => written[i] && { ...written[i], slug: m.slug }).filter(Boolean)
 if (!results.length) throw new Error('plan-milestones: no writer returned a result')
@@ -136,8 +136,11 @@ You are done when no step in ${m.file} relies on a refuted claim, and every step
 
 const latest = new Map(results.map(r => [r.slug, r]))
 // A revision adds to the first write: keep both rounds' interface requests and notes.
+// A reviser that returns nothing is missing, same as a writer that returns
+// nothing: the plan skill re-runs it with `only`, then writes it itself.
+const revisedMissing = []
 toRevise.forEach((m, i) => {
-  if (!revised[i]) return
+  if (!revised[i]) { revisedMissing.push(m.slug); return }
   const prev = latest.get(m.slug)
   latest.set(m.slug, {
     ...revised[i],
@@ -146,6 +149,8 @@ toRevise.forEach((m, i) => {
     notes: [prev.notes, revised[i].notes].filter(Boolean).join('\n'),
   })
 })
+if (revisedMissing.length) log(`no result from the reviser of: ${revisedMissing.join(', ')}`)
+missing = [...new Set([...missing, ...revisedMissing])]
 
 return {
   tier,

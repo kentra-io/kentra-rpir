@@ -71,6 +71,19 @@ export const fixtures = {
           'the normal claim comes back unverified': r => r.research.some(o => o.claim === 'Lib X default 30s' && o.status === 'unverified'),
         },
       },
+      'a reviser that returns nothing is missing': {
+        args: { ...base, tier: 'light' },
+        overrides: {
+          'write:core': { slug: 'core', claims: [{ claim: 'Lib X streams', why: 'w', importance: 'critical' }], interface_requests: [], notes: '' },
+          'write:cli': { slug: 'cli', claims: [], interface_requests: [], notes: '' },
+          'check:plan-lib-x-streams': { verdict: 'refuted', confidence: 'high', evidence: [], summary: 's', gaps: [] },
+          'revise:core': null,
+        },
+        nullsOk: true,
+        expect: {
+          'the slug with a null reviser is missing': r => r.missing.includes('core'),
+        },
+      },
       'ledgered claims are skipped': {
         args: base,
         overrides: {

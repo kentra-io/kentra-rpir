@@ -15,6 +15,7 @@ export const meta = {
 //   head        (required) absolute path of the draft's head.yaml
 //   milestones  (required) [{ slug, file }] — one fragment file per milestone
 //   only        (optional) slugs to (re)write; the rest are left alone
+//   guidance    (optional) { <slug>: text } — the author's answer to that writer's interface requests, for a re-run with only
 //   tier        (optional) 'full' | 'light', default 'full'
 //   writer      (required) { agent, model }
 //   research    (required) { workflow, checker, designer, reasoner }
@@ -62,7 +63,9 @@ ${args.ledger && args.ledger.length ? `- The ledger (claims already settled; giv
 ${TIER_TEXT}
 
 Keep the skeleton's slug, number, depends-on, paths, check, criterion names and cross-milestone signatures. When your milestone needs one of them changed, keep the skeleton's version and return the change under interface_requests.
-
+${args.guidance && args.guidance[m.slug] ? `
+The plan's author settled your earlier interface requests: ${args.guidance[m.slug]} Follow it; raise a request again only if it leaves your milestone unbuildable.
+` : ''}
 You are done when ${m.file} holds the complete milestone and every claim your milestone depends on that the code and the ledger do not settle is listed under claims.`
 
 phase('Write')

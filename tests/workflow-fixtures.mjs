@@ -95,7 +95,10 @@ export const fixtures = {
       'only re-dispatches the named milestones': {
         args: { ...base, only: ['cli'] },
         overrides: { 'write:cli': { slug: 'cli', claims: [], interface_requests: [], notes: '' } },
-        expect: { 'one writer, cli': (_, c) => c.agents.filter(a => a.label.startsWith('write:')).map(a => a.label).join() === 'write:cli' },
+        expect: {
+          'one writer, cli': (_, c) => c.agents.filter(a => a.label.startsWith('write:')).map(a => a.label).join() === 'write:cli',
+          'no guidance: prompt lacks the settled-request paragraph': (_, c) => !c.agents.find(a => a.label === 'write:cli').prompt.includes('settled your earlier interface requests'),
+        },
       },
       'interface requests are returned': {
         args: base,
@@ -104,6 +107,13 @@ export const fixtures = {
           'write:cli': { slug: 'cli', claims: [], interface_requests: [], notes: '' },
         },
         expect: { 'request surfaced with its milestone': r => r.interface_requests.some(x => x.slug === 'core' && x.request.includes('stream')) },
+      },
+      'author guidance reaches a re-run writer': {
+        args: { ...base, only: ['core'], guidance: { core: 'Keep parse(String) as the skeleton says.' } },
+        overrides: { 'write:core': { slug: 'core', claims: [], interface_requests: [], notes: '' } },
+        expect: {
+          'write:core prompt carries the guidance text': (_, c) => c.agents.find(a => a.label === 'write:core').prompt.includes('Keep parse(String) as the skeleton says.'),
+        },
       },
     }
   })(),

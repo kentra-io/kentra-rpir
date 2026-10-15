@@ -86,9 +86,11 @@ exact syntax of a call the library plainly supports.
 List the claims the plan's shape rests on: the versions to pin, whether an
 API or tool supports what a milestone needs, platform behaviour a criterion
 relies on. Look up what the repo answers. Skip any premise already in the
-ledger (the spec's Premises table, or a `# premises:` row): the plan stage
-never re-researches one, whatever its status, and never re-spikes a premise
-the spec stage settled. Send the rest to `research.workflow`, at the tier:
+ledger (the spec's Premises table, or a `# premises:` row): you never
+re-research one, whatever its status, and never re-spike a premise the spec
+stage settled; only a writer or a reviewer reopens one, when the plan
+changes something it rests on. Send the rest to `research.workflow`, at the
+tier:
 
 ```json
 { "today": "<YYYY-MM-DD>", "prefix": "plan", "topics": [{ "name": "<the claim>", "focus": "<why the plan depends on it>", "importance": "<critical|normal>" }],
@@ -126,7 +128,9 @@ spec's `P<n>`:
 `mkdir -p <draft>/milestones`, then write:
 
 - **`head.yaml`** — `schemaVersion: 0.3.0`, the plan-level `description`
-  (what every milestone shares) and `rules`, and last the line `milestones:`.
+  (what every milestone shares) and `rules` (references every milestone
+  needs, such as the constitution path when it is enabled), and last the
+  line `milestones:`.
 - **One fragment per milestone**, a single list item indented under
   `milestones:`, holding:
   - `number`, `slug`, `goal`;
@@ -134,7 +138,9 @@ spec's `P<n>`:
     the design decisions its writer must follow;
   - `deliverables` — every file, and each type it introduces with its
     responsibility. A type that crosses a milestone boundary gets its full
-    signature here: the writers on both sides build against it;
+    signature here: the writers on both sides build against it — use the
+    prose form of `deliverables`, since the structured `create`/`modify`/
+    `test` form holds file lists only;
   - `contract` — the repo's standard `check`; one criterion per behaviour,
     named after the test that proves it, with given/when/then at the level
     of the spec's requirement; and `paths`;
@@ -143,7 +149,7 @@ spec's `P<n>`:
   - `rules` — references only (a skill name or a repo path) to what the
     implementer must load and the verifier grades against. Leave out
     `CLAUDE.md`/`AGENTS.md` and path-scoped `.claude/rules`, which load by
-    themselves. Include the constitution path when it is enabled;
+    themselves;
   - `steps` — the single placeholder `"[ ] The milestone writer replaces this step."`.
 - **`tail.yaml`** — the `# premises:` block from step 2.
 
@@ -184,7 +190,8 @@ Run `kentra-rpir:self-review` with `"mode": "skeleton"`:
   "researchDir": "<abs change>/research", "spikeDir": "<spikeDir>" }
 ```
 
-When it returns, handle the findings as in step 6, then go on.
+When it returns, handle the findings as in step 6 — a `technical` fix here
+edits the skeleton and is not a writer gap — then go on.
 
 ### 5. Write the milestones
 
@@ -213,11 +220,14 @@ When it returns:
   ledger, no later review raises it again, so this is where the user sees it.
 - **`interface_requests`:** settle each one. When it changes the skeleton — a
   signature, an edge, `paths` — edit every fragment it touches and run the
-  workflow again with `"only": [<the affected slugs>]`. Otherwise tell the
-  writer's milestone what to keep by running it again with `"only"`.
+  workflow again with `"only": [<the affected slugs>]`. Otherwise run the
+  workflow again with `"only": [<slug>]` and
+  `"guidance": { "<slug>": "<what to keep, and why>" }`.
 - **`missing`:** a milestone listed under `missing` — its writer or its
   reviser returned nothing — gets one more run with `"only"`. If it fails
-  again, write that milestone yourself.
+  again, write that milestone yourself. When every writer returns nothing,
+  the workflow stops with an error instead; run it once more, then write the
+  milestones yourself.
 
 ### 6. Assemble, validate, self-review
 

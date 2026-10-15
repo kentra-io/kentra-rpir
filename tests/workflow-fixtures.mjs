@@ -31,6 +31,69 @@ const specRetroPrepassOverride = {
 }
 
 export const fixtures = {
+  'plan-milestones': (() => {
+    const base = {
+      today: '2026-10-13', projectRoot: '/p', spec: '/p/c/spec.md', skeleton: '/p/c/plan.yaml', head: '/p/draft/head.yaml',
+      milestones: [{ slug: 'core', file: '/p/draft/milestones/01-core.yaml' }, { slug: 'cli', file: '/p/draft/milestones/02-cli.yaml' }],
+      tier: 'full', writer: { agent: 'kentra-rpir:plan-writer', model: 'opus' }, research,
+      researchDir: OUT_DIR, spikeDir: SPIKE_DIR, ledger: ['/p/c/spec.md', '/p/draft/tail.yaml'],
+    }
+    return {
+      'rejects missing args': { args: {}, throws: /plan-milestones needs/ },
+      'one writer per milestone, in parallel, on the writer role': {
+        args: base,
+        overrides: {
+          'write:core': { slug: 'core', claims: [], interface_requests: [], notes: '' },
+          'write:cli': { slug: 'cli', claims: [], interface_requests: [], notes: '' },
+        },
+        expect: {
+          'two writers': (_, c) => c.agents.filter(a => a.label.startsWith('write:')).length === 2,
+          'writer uses the role agent and model': (_, c) => c.agents.every(a => !a.label.startsWith('write:') || (a.agentType === 'kentra-rpir:plan-writer' && a.model === 'opus')),
+          'writer edits only its fragment': (_, c) => c.agents.find(a => a.label === 'write:core').prompt.includes('edit only /p/draft/milestones/01-core.yaml'),
+          'writer told to keep the skeleton contract': (_, c) => c.agents.find(a => a.label === 'write:core').prompt.includes('interface_requests'),
+          'full tier: complete code': (_, c) => c.agents.find(a => a.label === 'write:core').prompt.includes('complete code'),
+          'no claims: no research, no revise': (_, c) => c.workflows.length === 0 && !c.agents.some(a => a.label.startsWith('revise:')),
+        },
+      },
+      'light tier: best-effort wording; only critical claims researched': {
+        args: { ...base, tier: 'light' },
+        overrides: {
+          'write:core': { slug: 'core', claims: [{ claim: 'Lib X streams', why: 'w', importance: 'critical' }, { claim: 'Lib X default 30s', why: 'w', importance: 'normal' }], interface_requests: [], notes: '' },
+          'write:cli': { slug: 'cli', claims: [], interface_requests: [], notes: '' },
+          'check:plan-lib-x-streams': { verdict: 'refuted', confidence: 'high', evidence: [], summary: 's', gaps: [] },
+          'revise:core': { slug: 'core', claims: [], interface_requests: [], notes: 'reworked' },
+        },
+        nullsOk: true,
+        expect: {
+          'light wording reaches the writer': (_, c) => c.agents.find(a => a.label === 'write:core').prompt.includes('best code your knowledge supports'),
+          'only the critical claim researched, with the plan prefix': (_, c) => c.workflows.length === 1 && c.workflows[0].args.topics.length === 1 && c.workflows[0].args.prefix === 'plan',
+          'the writer whose claim was refuted revises': (_, c) => c.agents.some(a => a.label === 'revise:core') && !c.agents.some(a => a.label === 'revise:cli'),
+          'the normal claim comes back unverified': r => r.research.some(o => o.claim === 'Lib X default 30s' && o.status === 'unverified'),
+        },
+      },
+      'ledgered claims are skipped': {
+        args: base,
+        overrides: {
+          'write:core': { slug: 'core', claims: [{ claim: 'Known', why: 'w', importance: 'critical', premise: 'P1' }], interface_requests: [], notes: '' },
+          'write:cli': { slug: 'cli', claims: [], interface_requests: [], notes: '' },
+        },
+        expect: { 'no research': (_, c) => c.workflows.length === 0 },
+      },
+      'only re-dispatches the named milestones': {
+        args: { ...base, only: ['cli'] },
+        overrides: { 'write:cli': { slug: 'cli', claims: [], interface_requests: [], notes: '' } },
+        expect: { 'one writer, cli': (_, c) => c.agents.filter(a => a.label.startsWith('write:')).map(a => a.label).join() === 'write:cli' },
+      },
+      'interface requests are returned': {
+        args: base,
+        overrides: {
+          'write:core': { slug: 'core', claims: [], interface_requests: ['Widget.list() should return a stream'], notes: '' },
+          'write:cli': { slug: 'cli', claims: [], interface_requests: [], notes: '' },
+        },
+        expect: { 'request surfaced with its milestone': r => r.interface_requests.some(x => x.slug === 'core' && x.request.includes('stream')) },
+      },
+    }
+  })(),
   research: {
     'rejects missing args': { args: {}, throws: /needs args/ },
     'one topic': {

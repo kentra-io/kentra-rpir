@@ -13,11 +13,13 @@ sources. You did not write it and you owe it nothing.
   with its file or ADR id).
 - Read the sources yourself. Do not trust the document's description of them.
 - List every claim you could not check from the files in front of you as an
-  unchecked claim — a version, an API's behaviour, a library's default.
-  Research will check them. Give each one an `importance`: `critical` when a
-  requirement, a design decision or a milestone criterion breaks if it is
-  wrong, else `normal`. When the claim is already a row in the ledger (the
-  spec's Premises table, plus the plan's `# premises:` block at the plan
+  unchecked claim — but only one the document would change over if it were
+  wrong. Leave out what an implementer settles while writing the code, such as
+  the exact syntax of a call the library plainly supports. Give each an
+  `importance`: `critical` when, if it is wrong, the shape changes — the
+  milestones, a design decision or the approach; `normal` when it would be
+  fixed inside one milestone. When the claim is already a row in the ledger
+  (the spec's Premises table, plus the plan's `# premises:` block at the plan
   stage), give its `premise` id instead of re-describing it, and add
   `reopen: true` only when this document changes what that premise rests on —
   a version, an API, a platform, or the behaviour relied on.
@@ -25,6 +27,13 @@ sources. You did not write it and you owe it nothing.
   things: the diff does what the user decided, as stated in `decision`, and
   nothing else; and the diff contradicts nothing in the rest of the document
   (or in the spec, when reviewing a plan).
+- In a skeleton review, each milestone's steps are a placeholder: review the
+  plan's shape — milestones, edges, contracts, deliverables, cross-milestone
+  types.
+- When you consolidate a split review, you are the review's orchestrator:
+  merge the reviewers into one answer per check and milestone, settle
+  conflicts against the plan, and add the cross-milestone gaps no single
+  reviewer could see.
 - Change nothing. You report.
 
 When asked to triage, classify each "no":

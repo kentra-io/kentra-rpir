@@ -17,8 +17,13 @@ founder:
   its conversation.
 - **Checked against the source.** An independent reviewer checks the spec and
   the plan against the conversation, the spec, the project's rules and its
-  constitution. Research agents check every premise with a docs check, and
-  spike only a critical premise the docs don't settle.
+  constitution — split per milestone for a plan. Research agents check every
+  premise that could change the plan with a docs check, and spike only a
+  critical premise the docs don't settle.
+- **Two tiers.** `full` for code that ships; `light` for proofs of concept,
+  researching only what could change the plan's shape.
+- **Plans written in parallel.** The main session writes the plan's skeleton;
+  one writer per milestone fills in the detail.
 - **Parallel, verified implementation.** Milestones from the plan's DAG run in
   parallel git worktrees. Each one is checked by a fresh verifier before it
   merges.
@@ -37,7 +42,7 @@ Everything for one change lives in `docs/changes/<date>-<slug>/`. See
 brew install kentra-io/tap/milestoned-plan-dag
 ```
 
-Needs `milestoned-plan-dag` 0.2.0 or later and `jq` 1.6 or later.
+Needs `milestoned-plan-dag` 0.3.0 or later and `jq` 1.6 or later.
 
 Optional: [`adr-sourced-constitution`](https://github.com/kentra-io/adr-sourced-constitution)
 for a project constitution that every stage reads.

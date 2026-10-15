@@ -495,16 +495,23 @@ answered.
    versions, the sessions read.
 2. **Outcome:** two or three sentences, taken from the verifier's results rather
    than the report.
-3. **Self-report reconciliation:** a row per contradicted or unsupported claim, with
-   its verdict and evidence, plus a count of the claims confirmed.
-4. **Timeline:** per milestone, with decisive points marked.
-5. **Findings:** id, fault class, decisive step with its reference, how it made
+3. **Planning cost:** per spec or plan session, the self-review workflow's stage
+   and mode, duration, agent count and tokens; then question rounds, status
+   resets, full and diff review counts, and the planning workflows' total wall
+   time.
+4. **Implementation cost:** per milestone, the implementer dispatches, verify
+   rounds, fresh tokens and wall time; and the orchestrator's own fresh tokens and
+   wall time.
+5. **Self-report reconciliation:** a row per contradicted or unsupported claim,
+   with its verdict and evidence, plus a count of the claims confirmed.
+6. **Timeline:** per milestone, with decisive points marked.
+7. **Findings:** id, fault class, decisive step with its reference, how it made
    sense at the time, severity.
-6. **What went well:** what to keep, so that a fix does not undo it.
-7. **Actions:** one per finding, as above.
-8. **Recurring:** fault classes and findings also seen in earlier retros in
+8. **What went well:** what to keep, so that a fix does not undo it.
+9. **Actions:** one per finding, as above.
+10. **Recurring:** fault classes and findings also seen in earlier retros in
    `docs/changes/*/spec-retro.md`.
-9. **Open questions:** what the evidence could not settle.
+11. **Open questions:** what the evidence could not settle.
 
 ## Session records
 

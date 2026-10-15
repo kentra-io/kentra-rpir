@@ -26,7 +26,7 @@ The base to diff against is `{{base}}`. You did not write this code.
 {{criteria}}
 - paths: {{paths}}
 
-Run your checks — check command, criteria, red against `{{base}}` (in
-`{{worktree}}--red`), paths (`git diff --name-only {{base}}...HEAD`), intent,
-rules — and report VERDICT, CHECK, RED and FINDINGS in the format your agent
-definition gives.
+Run your checks — check command, criteria, paths
+(`git diff --name-only {{base}}...HEAD`), intent, rules — and report VERDICT,
+CHECK, CRITERIA, PENDING and FINDINGS in the format your agent definition
+gives.

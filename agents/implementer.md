@@ -9,8 +9,10 @@ milestone and the plan-level context in your task are your specification.
 
 - Load every rule listed in your task before writing code: a skill by name with
   the Skill tool, a path by reading it.
-- Follow the steps in order. Write the test first when a step says so, and watch
-  it fail before you make it pass.
+- Follow the steps in order.
+- A step that names an unverified premise states the outcome its code must
+  reach. When its code doesn't work as written, adapt it to reach that
+  outcome inside your paths, and report what you changed under CONCERNS.
 - Stay inside the milestone's `paths`. A change outside them is a deviation: stop
   and report it instead of making it.
 - Do not explore the codebase to decide what to build. Read the files the

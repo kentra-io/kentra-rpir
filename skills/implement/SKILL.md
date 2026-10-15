@@ -95,6 +95,8 @@ implementer's context:
   commit the milestone branched from.
 
 - **PASS** → integrate (step 4).
+  A PASS with PENDING criteria integrates too; keep the pending criteria for
+  the user, who checks them on the integrated stack before the report.
 - **FAIL** → re-dispatch the implementer with the findings as `guidance`, then
   verify again with a new verifier. After `implement.maxVerifyRounds` FAILs,
   treat the milestone as blocked.

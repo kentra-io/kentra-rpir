@@ -1,6 +1,6 @@
 ---
 name: spec
-description: Turns an idea, bug or chore into an agreed spec.md for kentra-rpir — interactive questions in batches, background research checking every premise, an independent self-review. Use when starting a change, or when the user wants to write or revise a spec.
+description: Turns an idea, bug or chore into an agreed spec.md for kentra-rpir — interactive questions in batches, background research checking the premises that matter, an independent self-review. Use when starting a change, or when the user wants to write or revise a spec.
 ---
 
 # spec — stage 1 of kentra-rpir
@@ -31,18 +31,23 @@ Make a task for each item and complete them in order.
 
 ### 1. Set up
 
-- **First use in this project** (no `.kentra-rpir.yaml`): ask these three
+- **First use in this project** (no `.kentra-rpir.yaml`): ask these four
   questions in one message, then write the file from the template with the
   answers.
   - Where should change folders live? (default `docs/changes`)
   - Which issue tracker: none, GitHub or Jira?
   - Should the stages read `constitution/constitution.md`? Recommend yes when
     that file exists.
-
-  Add `.kentra-rpir/` and the `worktreesDir` (default `.worktrees/`) to
-  `.gitignore`.
+  - Which process tier should changes default to? `full` for code that
+    ships (complete research and plans); `light` for a proof of concept, a
+    demo or a sandbox (research only what could change the plan's shape).
+- **Every run:** make sure `.gitignore` holds `.kentra-rpir/`, the
+  `worktreesDir` (default `.worktrees/`) and `<changesDir>/*/research/spikes/`,
+  adding whichever is missing. Spikes live in the change folder and never
+  reach git.
 - **Change folder:** `<changesDir>/<today>-<slug>/`. The slug is 2–4 kebab-case
-  words. Copy the spec template into it as `spec.md`, with `status: draft`.
+  words. Copy the spec template into it as `spec.md`, with `status: draft`
+  and `tier` set from `.kentra-rpir.yaml`'s `tier` (default `full`).
 - **Register this session:**
   `mkdir -p .kentra-rpir && echo "${CLAUDE_SESSION_ID} <change folder> spec" >> .kentra-rpir/sessions.map`
 - **Tracker:**
@@ -67,32 +72,39 @@ questions, and no more.
 - Cover the problem, the goals, what is out of scope, and how the user will
   know it works.
 - **Premises.** A premise is anything the change assumes is true: how an API
-  behaves, what a library version supports, what users do. Add each one to the
-  spec's Premises table as `unverified` the moment it surfaces, with an
-  `importance`: `critical` when a requirement, a design decision or a
-  milestone criterion breaks if the premise is wrong, else `normal`.
+  behaves, what a library version supports, what users do. Record one only
+  when the spec or plan would change if it were wrong. Add each to the spec's
+  Premises table as `unverified` the moment it surfaces, with an
+  `importance`: `critical` when, if it is wrong, the shape changes — a
+  requirement, a design decision or the milestones; `normal` when it would be
+  fixed inside one milestone.
+- **Tier.** The spec's `tier` comes from the config. When what you learn
+  about the change fits the other tier better, recommend it with a one-line
+  reason and let the user choose (`light` fits a throwaway, a proof of
+  concept, a demo or a sandbox; `full` fits code that ships to users,
+  handles data or security, or that other code will build on), then write
+  their choice into the spec's `tier`.
 
 ### 4. Research in the background
 
-Research every premise that has no Evidence yet (`—`), including the ones
-step 3 just added as `unverified`. Skip a premise only once it already has
-Evidence (`docs: …` or `spike: …`): the spec stage's own research never
-re-researches an already-researched premise, whatever its status, unless an
-edit re-opens it.
+Research every premise that has no Evidence yet (`—`), at the spec's tier:
+`full` researches every such premise; `light` researches only the `critical`
+ones and leaves the `normal` ones `unverified`. Skip a premise once it has
+Evidence (`docs: …` or `spike: …`): the spec stage never re-researches one,
+whatever its status, unless an edit re-opens it.
 
 Start the research workflow (`research.workflow`) for each premise still
 needing research, about an external system, with its `importance` carried
 onto the topic. Run it in the background, with args:
 
 ```json
-{ "today": "<YYYY-MM-DD>", "topics": [{ "name": "<the premise as a claim>", "focus": "<why the change depends on it>", "importance": "<critical|normal>" }],
+{ "today": "<YYYY-MM-DD>", "prefix": "spec", "topics": [{ "name": "<the premise as a claim>", "focus": "<why the change depends on it>", "importance": "<critical|normal>" }],
   "question": "Is this premise true for <change title>?", "outDir": "<abs change folder>/research",
-  "checker": "<research.checker>", "designer": "<research.designer>", "runner": "<research.runner>", "reasoner": "<research.reasoner>",
-  "spikeDir": "<project root>/.kentra-rpir/spikes/<change folder name>/" }
+  "checker": "<research.checker>", "designer": "<research.designer>", "reasoner": "<research.reasoner>",
+  "spikeDir": "<abs change folder>/research/spikes" }
 ```
 
-Create `spikeDir` with `mkdir -p` first; `.kentra-rpir/` is already
-gitignored.
+Create `spikeDir` with `mkdir -p` first; step 1 made sure it is gitignored.
 
 Keep talking while it runs. When a report arrives, set the premise's status
 (`verified`, `refuted` or `unverified`) and Evidence from its `evidence`
@@ -107,11 +119,11 @@ If you spike something yourself, outside the research workflow:
 > file with the Write tool, then run it with one short command such as `sh
 > <file>`. Never use heredocs, inline `python3 -c`/`sh -c`/`node -e` programs,
 > chained or piped commands, `&`, command substitution or redirects, and
-> never run anything that reads stdin. Work only under `<spikeDir>/<slug>/`.
-> Never run `git init` there or anywhere else.
+> never run anything that reads stdin. Write and run experiments only under
+> `<spikeDir>/<slug>/`. Never run `git init` there or anywhere else.
 
-Keep the spike files and a `result.md` under
-`<change folder>/research/spikes/<slug>/`.
+Name the folder `spec-<slug>` and write `result.md` beside the spike files
+in it.
 
 ### 5. Propose approaches
 
@@ -138,14 +150,14 @@ sh "${CLAUDE_PLUGIN_ROOT}/scripts/planning-log.sh" --project "$(git rev-parse --
 Run the `kentra-rpir:self-review` workflow with:
 
 ```json
-{ "today": "<YYYY-MM-DD>", "stage": "spec", "mode": "full", "document": "<abs path>/spec.md", "projectRoot": "<project root>",
+{ "today": "<YYYY-MM-DD>", "stage": "spec", "tier": "<the spec's tier>", "mode": "full", "document": "<abs path>/spec.md", "projectRoot": "<project root>",
   "transcripts": ["<project root>/.kentra-rpir/reviewed/<change folder name>/planning-log.jsonl"],
   "ledger": ["<abs path>/spec.md"],
   "constitution": "<abs path of constitution/constitution.md, or null when disabled>",
   "reviewer": { "agent": "<roles.reviewer.agent>", "model": "<roles.reviewer.model>" },
-  "research": { "workflow": "<research.workflow>", "checker": "<research.checker>", "designer": "<research.designer>", "runner": "<research.runner>", "reasoner": "<research.reasoner>" },
+  "research": { "workflow": "<research.workflow>", "checker": "<research.checker>", "designer": "<research.designer>", "reasoner": "<research.reasoner>" },
   "researchDir": "<abs change folder>/research",
-  "spikeDir": "<project root>/.kentra-rpir/spikes/<change folder name>/" }
+  "spikeDir": "<abs change folder>/research/spikes" }
 ```
 
 When it returns:
@@ -162,7 +174,8 @@ When it returns:
   left `unverified` after its spike arrives as a decision finding: proceed on
   it, change the design, or drop the requirement.
 - **`research` outcomes:** fill each premise's Importance, Status and
-  Evidence in the Premises table.
+  Evidence in the Premises table. An outcome marked `not researched (light
+  tier)` goes into the table as `unverified` with Evidence `—`.
 
 ### 7a. Edits after review
 
@@ -179,16 +192,16 @@ When unsure, use a diff review.
 For a diff review, run `kentra-rpir:self-review` with:
 
 ```json
-{ "today": "<YYYY-MM-DD>", "stage": "spec", "mode": "diff",
+{ "today": "<YYYY-MM-DD>", "stage": "spec", "tier": "<the spec's tier>", "mode": "diff",
   "document": "<abs path>/spec.md",
   "base": "<the last reviewed snapshot's absolute path, `<project root>/.kentra-rpir/reviewed/<change folder name>/spec.md`, or, once spec.md is committed, `git log -1 --format=%H -- <document>`>",
   "decision": "<what the user decided, in plain words>",
   "projectRoot": "<project root>", "ledger": ["<abs path>/spec.md"],
   "constitution": "<abs path of constitution/constitution.md, or null when disabled>",
   "reviewer": { "agent": "<roles.reviewer.agent>", "model": "<roles.reviewer.model>" },
-  "research": { "workflow": "<research.workflow>", "checker": "<research.checker>", "designer": "<research.designer>", "runner": "<research.runner>", "reasoner": "<research.reasoner>" },
+  "research": { "workflow": "<research.workflow>", "checker": "<research.checker>", "designer": "<research.designer>", "reasoner": "<research.reasoner>" },
   "researchDir": "<abs change folder>/research",
-  "spikeDir": "<project root>/.kentra-rpir/spikes/<change folder name>/" }
+  "spikeDir": "<abs change folder>/research/spikes" }
 ```
 
 When it returns, copy the edited `spec.md` to
@@ -221,7 +234,7 @@ with one line:
 
 | Thought | Reality |
 |---|---|
-| "This premise is obviously true" | Then research will confirm it quickly. Start it. |
+| "This premise is obviously true" | Then research confirms it quickly. Start it whenever the tier researches it. |
 | "I'll ask all twelve questions at once" | Up to `spec.questionBatch`, and only questions that do not depend on each other. |
 | "The user seems happy, I'll mark it agreed" | Only the user's explicit agreement sets `status: agreed`. |
 | "Self-review flagged a decision, but I know the answer" | A decision finding goes to the user. |

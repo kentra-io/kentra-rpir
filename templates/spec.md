@@ -2,6 +2,7 @@
 title: <short name>
 type: feature            # feature | bug | chore
 status: draft            # draft | agreed | planned | implementing | in-review | done
+tier: full               # full | light — from .kentra-rpir.yaml's tier unless the user chose otherwise
 issue:                   # tracker link, when a tracker is configured
 planningLog: planning-log.jsonl   # trimmed spec and plan sessions, written when the plan is approved
 ---

@@ -25,18 +25,18 @@ git -C "$repo" add -A
 git -C "$repo" commit -q -m init
 
 # 1. A change folder holding an embedded repository blocks the commit.
-mkdir -p "$repo/$change/research/spikes/x"
-echo "spike output" > "$repo/$change/research/spikes/x/file.txt"
-git -C "$repo/$change/research/spikes/x" init -q
+mkdir -p "$repo/$change/research/x"
+echo "spike output" > "$repo/$change/research/x/file.txt"
+git -C "$repo/$change/research/x" init -q
 
 stdout1="$root/cc-stdout1"; stderr1="$root/cc-stderr1"
 (cd "$repo" && sh "$script" "$change" "add demo") >"$stdout1" 2>"$stderr1"
 rc=$?
 check "embedded repo exits 1" test "$rc" -eq 1
-check "embedded repo message names the offending path" grep -q 'research/spikes/x' "$stderr1"
+check "embedded repo message names the offending path" grep -q 'research/x' "$stderr1"
 check "embedded repo: nothing staged" sh -c "cd '$repo' && git diff --cached --quiet"
 
-rm -rf "$repo/$change/research/spikes/x/.git"
+rm -rf "$repo/$change/research/x/.git"
 
 # 2. A clean change folder commits successfully, touching only the given
 # paths. An unrelated file that was already staged (e.g. by another skill
@@ -62,12 +62,29 @@ for f in $files; do
   esac
 done
 check "commit's paths are only the change folder and the extra path" test "$outside" -eq 0
-check "the change folder's spike file is in the commit" sh -c "printf '%s\n' \"$files\" | grep -qx '$change/research/spikes/x/file.txt'"
+check "the change folder's research file is in the commit" sh -c "printf '%s\n' \"$files\" | grep -qx '$change/research/x/file.txt'"
 check "the extra path is in the commit" sh -c "printf '%s\n' \"$files\" | grep -qx 'notes.txt'"
 check "an unrelated already-staged file is not swept into the commit" \
   sh -c "! printf '%s\n' \"$files\" | grep -qx 'unrelated.txt'"
 check "the unrelated file remains staged after the commit" \
   sh -c "cd '$repo' && git diff --cached --name-only | grep -qx 'unrelated.txt'"
+
+# 3. Spikes present but not gitignored: refuse, name the pattern.
+mkdir -p "$repo/$change/research/spikes/y"
+echo "spike" > "$repo/$change/research/spikes/y/run.sh"
+stdout3="$root/cc-stdout3"; stderr3="$root/cc-stderr3"
+(cd "$repo" && sh "$script" "$change" "with spikes") >"$stdout3" 2>"$stderr3"
+rc3=$?
+check "unignored spikes exit 1" test "$rc3" -eq 1
+check "unignored spikes message names the pattern" grep -q 'research/spikes/' "$stderr3"
+check "unignored spikes: no spike staged" sh -c "cd '$repo' && ! git diff --cached --name-only | grep -q research/spikes/"
+
+# 4. Once ignored, the commit goes through and the spike stays out of it.
+echo 'docs/changes/*/research/spikes/' > "$repo/.gitignore"
+(cd "$repo" && sh "$script" "$change" "with ignored spikes" .gitignore) >/dev/null 2>&1
+rc4=$?
+check "ignored spikes: commit succeeds" test "$rc4" -eq 0
+check "ignored spikes: spike not in HEAD" sh -c "cd '$repo' && ! git ls-tree -r --name-only HEAD | grep -q research/spikes/"
 
 [ "$fails" -eq 0 ] && echo "all commit-change tests passed"
 exit "$fails"

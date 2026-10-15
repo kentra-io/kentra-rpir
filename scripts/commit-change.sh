@@ -7,10 +7,12 @@
 #
 # 1. If `find <change folder> -mindepth 1 -name .git` prints anything, warns
 #    and exits 1 before staging anything.
-# 2. Runs `git add -- <change folder> <extra paths>`, capturing stderr. If
+# 2. If <change folder>/research/spikes/ is non-empty and not gitignored,
+#    warns and exits 1 before staging anything.
+# 3. Runs `git add -- <change folder> <extra paths>`, capturing stderr. If
 #    stderr contains "embedded git repository", resets the same paths, warns
 #    and exits 1.
-# 3. Runs `git commit -m <message> -- <change folder> <extra paths>` and
+# 4. Runs `git commit -m <message> -- <change folder> <extra paths>` and
 #    exits with git's status.
 set -u
 
@@ -27,6 +29,16 @@ if [ -n "$found" ]; then
   repo=$(dirname "$found")
   echo "kentra-rpir: $repo is a git repository inside the change folder; remove it and keep only the spike files" >&2
   exit 1
+fi
+
+# Spikes live in <change>/research/spikes/ and are never committed: refuse
+# when the project's .gitignore does not cover them.
+if [ -d "$change/research/spikes" ] && [ -n "$(ls -A "$change/research/spikes" 2>/dev/null)" ]; then
+  probe="$change/research/spikes/.kentra-rpir-probe"
+  if ! git check-ignore -q --no-index "$probe"; then
+    echo "kentra-rpir: $change/research/spikes/ is not gitignored; add the line '<changesDir>/*/research/spikes/' to .gitignore" >&2
+    exit 1
+  fi
 fi
 
 errout=$(mktemp "${TMPDIR:-/tmp}/kentra-rpir-commit.XXXXXX")

@@ -25,9 +25,9 @@ const specRetroArgs = {
 }
 const specRetroPrepassOverride = {
   'prepass:s2': { claudeCodeVersion: '2.1.296', milestones: [
-    { slug: 'core', dispatches: 1, verifierFails: 0, writesOutsidePaths: [], testRuns: 2, errors: 0, blocked: false },
-    { slug: 'cli', dispatches: 3, verifierFails: 1, writesOutsidePaths: [], testRuns: 3, errors: 2, blocked: false },
-  ], skeletons: [] },
+    { slug: 'core', dispatches: 1, verifierFails: 0, writesOutsidePaths: [], testRuns: 2, errors: 0, blocked: false, verifyRounds: 1, freshTokens: 120000, wallMs: 300000 },
+    { slug: 'cli', dispatches: 3, verifierFails: 1, writesOutsidePaths: [], testRuns: 3, errors: 2, blocked: false, verifyRounds: 2, freshTokens: 340000, wallMs: 900000 },
+  ], skeletons: [], orchestrator: { freshTokens: 80000, wallMs: 1500000 } },
 }
 
 export const fixtures = {
@@ -748,6 +748,15 @@ export const fixtures = {
     'throws when a session has no path': {
       args: { ...specRetroArgs, sessions: [{ id: 's1', stage: 'spec' }, { id: 's2', stage: 'implement', path: '/p/c/sessions/s2.jsonl' }] },
       throws: /session "s1" has no path/,
+    },
+    'implementation cost reaches the writer': {
+      args: specRetroArgs,
+      overrides: specRetroPrepassOverride,
+      expect: {
+        'pre-pass asks for the cost fields': (_, c) => { const p = c.agents.find(a => a.label === 'prepass:s2').prompt; return p.includes('verifyRounds') && p.includes('freshTokens') && p.includes('wallMs') },
+        'writer gets the implementation cost': (_, c) => { const p = c.agents.find(a => a.label === 'write').prompt; return p.includes('Implementation cost') && p.includes('340000') && p.includes('1500000') },
+        'returns the implementation cost': r => r.implementation && r.implementation.milestones.length === 2 && r.implementation.orchestrator.freshTokens === 80000,
+      },
     },
   },
 }

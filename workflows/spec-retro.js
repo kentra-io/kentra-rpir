@@ -51,6 +51,7 @@ const PREPASS_SCHEMA = {
   properties: {
     claudeCodeVersion: { type: 'string' },
     compactions: { type: 'number' },
+    orchestrator: { type: 'object', properties: { freshTokens: { type: 'number' }, wallMs: { type: 'number' } } },
     milestones: { type: 'array', items: { type: 'object', properties: {
       slug: { type: 'string' },
       dispatches: { type: 'number' },
@@ -60,6 +61,7 @@ const PREPASS_SCHEMA = {
       errors: { type: 'number' },
       blocked: { type: 'boolean' },
       transcripts: { type: 'array', items: { type: 'string' } },
+      verifyRounds: { type: 'number' }, freshTokens: { type: 'number' }, wallMs: { type: 'number' },
     }, required: ['slug', 'dispatches', 'verifierFails', 'writesOutsidePaths', 'testRuns', 'errors', 'blocked'] } },
     skeletons: { type: 'array', items: { type: 'object', properties: {
       slug: { type: 'string' },
@@ -107,7 +109,7 @@ Extract signals from an implementation session. The orchestrator transcript is $
 Milestones:
 ${milestoneList}
 
-For each milestone, count: implementer dispatches, verifier FAIL verdicts, errors and non-zero exits, test runs. List files written outside its paths, and the transcript files that belong to it. Mark it blocked if it was never merged. Record the Claude Code version (the "version" field on transcript lines) and the number of compact_boundary markers.
+For each milestone, count: implementer dispatches, verifier FAIL verdicts, errors and non-zero exits, test runs, and verifyRounds (verifier dispatches). Measure its cost from its subagent transcripts: freshTokens is the sum of usage.input_tokens + usage.cache_creation_input_tokens + usage.output_tokens over assistant messages, counting each message.id once; wallMs runs from the first to the last timestamp across those transcripts. List files written outside its paths, and the transcript files that belong to it. Mark it blocked if it was never merged. For the orchestrator transcript itself, give orchestrator.freshTokens (the same sum) and orchestrator.wallMs. Record the Claude Code version (the "version" field on transcript lines) and the number of compact_boundary markers.
 
 Then write a skeleton timeline per milestone: one event per dispatch, verdict, error, retry, user message and merge, each with its ref <file>:<line>.
 
@@ -145,11 +147,25 @@ for (const p of prepasses.filter(Boolean)) {
       errors: prev.errors + m.errors,
       blocked: prev.blocked && m.blocked,
       transcripts: [...(prev.transcripts || []), ...(m.transcripts || [])],
+      verifyRounds: (prev.verifyRounds || 0) + (m.verifyRounds || 0),
+      freshTokens: (prev.freshTokens || 0) + (m.freshTokens || 0),
+      wallMs: Math.max(prev.wallMs || 0, m.wallMs || 0),
     } : m)
   }
   for (const sk of p.skeletons || []) skeletons.set(sk.slug, [...(skeletons.get(sk.slug) || []), ...sk.events])
 }
 const claudeCodeVersion = prepasses.find(p => p?.claudeCodeVersion)?.claudeCodeVersion || args.versions?.claudeCode || 'unknown'
+
+const implementation = {
+  milestones: args.milestones.map(m => {
+    const s = signals.get(m.slug) || {}
+    return { number: m.number, slug: m.slug, dispatches: s.dispatches || 0, verifyRounds: s.verifyRounds || 0, freshTokens: s.freshTokens || 0, wallMs: s.wallMs || 0 }
+  }),
+  orchestrator: prepasses.filter(Boolean).reduce((o, p) => ({
+    freshTokens: o.freshTokens + (p.orchestrator?.freshTokens || 0),
+    wallMs: o.wallMs + (p.orchestrator?.wallMs || 0),
+  }), { freshTokens: 0, wallMs: 0 }),
+}
 
 const troubled = s => !s || s.blocked || s.dispatches > 1 || s.verifierFails > 0 || s.errors > 0 || s.writesOutsidePaths.length > 0 || s.testRuns === 0
 
@@ -336,6 +352,7 @@ ${missing.length ? `Missing transcripts — list these in Open questions too: ${
 
 Readers (timelines): ${readsJson}
 Planning cost metrics (JSON): ${JSON.stringify(planning)}
+Implementation cost (JSON): ${JSON.stringify(implementation)}
 Synthesis: ${JSON.stringify(synthesis)}
 Reconciliation (only the contradicted and unsupported claims; ${confirmedCount} other claims were confirmed): ${JSON.stringify(notConfirmed)}
 Remediation: ${JSON.stringify(remediation)}
@@ -351,4 +368,5 @@ return {
   contradicted,
   actions: remediation.actions,
   planning,
+  implementation,
 }

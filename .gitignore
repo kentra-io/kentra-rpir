@@ -5,3 +5,6 @@
 # kentra-rpir's own working state when the plugin is dogfooded on this repo
 .kentra-rpir/
 .worktrees/
+
+# research spikes live in the change folder and never reach git
+docs/changes/*/research/spikes/

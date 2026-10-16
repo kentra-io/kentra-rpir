@@ -1,7 +1,7 @@
 ---
 title: Milestone graph pane for implement runs
 type: feature            # feature | bug | chore
-status: agreed           # draft | agreed | planned | implementing | in-review | done
+status: planned           # draft | agreed | planned | implementing | in-review | done
 tier: light              # full | light — from .kentra-rpir.yaml's tier unless the user chose otherwise
 issue:                   # tracker link, when a tracker is configured
 planningLog: planning-log.jsonl   # trimmed spec and plan sessions, written when the plan is approved

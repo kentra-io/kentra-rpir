@@ -7,6 +7,7 @@ sh tests/planning-log.test.sh
 sh tests/commit-change.test.sh
 sh tests/assemble-plan.test.sh
 node tests/check-workflows.mjs
+sh tests/check-templates.sh
 
 # The mod: validate the plugin, then run its tests on a staged copy.
 # `claude plugin test <dir>` runs every *.test.ts(x) under <dir>,

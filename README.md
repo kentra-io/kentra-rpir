@@ -103,7 +103,8 @@ reopen it and it shows the current state.
 
 **Trying it.** `sh tests/demo/run-demo.sh` from this checkout builds
 a throwaway git repository with a four-milestone diamond plan (M1,
-then M2 and M3 in parallel, then M4), Haiku implementers and
+then M2 and M3 in parallel, then M4, each sleeping 30 seconds and
+writing one dummy file), Haiku implementers and
 verifiers, and a bare `origin` beside it, in a new temporary
 directory (or in `<dir>` with `sh tests/demo/run-demo.sh <dir>`; the
 repository goes in `<dir>/project`). It then starts
@@ -144,9 +145,13 @@ that instead of toggling the pane.
 
 **Requirements and limits.** The pane needs Claude Code 2.1.287 or
 later. On older versions the rest of the plugin should work as
-before, without the pane. The pane tracks the run in the current
-session only: a resumed or restarted session, or a run in another
-terminal, starts with an empty pane.
+before, without the pane. The pane rebuilds the run from the
+session's transcript, so a session that continues under a new id (a
+background hand-off, a resume) shows the run where it is, and the
+orchestrator's every turn end checks the pane against the transcript.
+Timings come from the last session's record when there is one; a box
+the pane first learns of from the transcript counts its time from
+then. A run in another terminal is not shown.
 
 ## History
 

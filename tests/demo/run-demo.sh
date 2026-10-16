@@ -55,6 +55,7 @@ git -C "$project" remote add origin "$origin"
 
 echo "Demo project: $project"
 echo "Command: claude --plugin-dir \"$repo\" \"/kentra-rpir:implement $change\""
+echo "Remove it afterwards with: rm -rf \"$dir\""
 
 if [ "$print_only" -eq 0 ]; then
   cd "$project"

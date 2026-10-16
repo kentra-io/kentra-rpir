@@ -36,6 +36,16 @@ export function findChangeFolder(sessionsMap: string, sessionId: string): string
   return found
 }
 
+/** The change folder of the last `implement` line in sessions.map, any session. */
+export function newestImplementFolder(sessionsMap: string): string | null {
+  let found: string | null = null
+  for (const raw of sessionsMap.split('\n')) {
+    const [, folder, stage] = raw.replace(/\r$/, '').trim().split(/\s+/)
+    if (stage === 'implement' && folder) found = folder
+  }
+  return found
+}
+
 export function parseSpecTitle(specText: string, changeFolder: string): string {
   const lines = specText.split(/\r?\n/)
   if (lines[0]?.trim() === '---') {
@@ -95,7 +105,9 @@ export async function loadPlan(
     } catch {
       return { plan: null, error: `cannot read ${SESSIONS_MAP}` }
     }
-    const folder = findChangeFolder(map, sessionId)
+    // A session continued under a new id is in the map only once the
+    // orchestrator registers it again: fall back to the newest implement run.
+    const folder = findChangeFolder(map, sessionId) ?? newestImplementFolder(map)
     if (folder === null) {
       return { plan: null, error: `no implement entry for this session in ${SESSIONS_MAP}` }
     }

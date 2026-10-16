@@ -39,6 +39,19 @@ export type RunState = {
   agents: Record<string, AgentRun>           // by agentId
 }
 
+/** One tool call as the transcript holds it (the fields of the engine's ToolUseSummary the tracker reads). */
+export type TranscriptToolUse = {
+  tool: string
+  input: Record<string, unknown>
+  agentId?: string
+  text?: string
+  isError?: true
+}
+/** One transcript row ($.session.messages()): the source the tracker reconciles against. */
+export type TranscriptRow = { role: 'user' | 'assistant'; text: string; toolUses: TranscriptToolUse[] }
+/** What the engine says of an agent's loop right now ($.agent.list()): running or ended. */
+export type LiveAgents = Record<string, 'running' | 'ended'>
+
 /** Inputs the tracker reduces; the wiring builds them from engine events. */
 export type TrackerEvent =
   | { kind: 'spawn'; agentId: string; toolUseId: string | null; prompt: string; at: number }

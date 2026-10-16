@@ -1,6 +1,6 @@
 import { test, expect } from 'claude-code/testing'
 import type { EngineInterface } from 'claude-code'
-import { findChangeFolder, parseSpecTitle, parsePlanYaml, loadPlan } from '../plan'
+import { findChangeFolder, newestImplementFolder, parseSpecTitle, parsePlanYaml, loadPlan } from '../plan'
 
 const SELF = '1c0e2a0d-047c-4210-8977-644f3526facf'
 const OTHER = '9f8e7d6c-0000-4000-8000-000000000001'
@@ -141,9 +141,13 @@ test('loadPlan reports a missing entry', async () => {
   expect(noMap.plan).toBe(null)
   expect(noMap.error).toBe('cannot read .kentra-rpir/sessions.map')
 
-  const noEntry = await loadPlan(stub({ '/proj/.kentra-rpir/sessions.map': SESSIONS_MAP }), 'no-such-session')
+  const noEntry = await loadPlan(stub({ '/proj/.kentra-rpir/sessions.map': `${SELF} docs/changes/x spec\n` }), 'no-such-session')
   expect(noEntry.plan).toBe(null)
   expect(noEntry.error).toBe('no implement entry for this session in .kentra-rpir/sessions.map')
+
+  // A session not in the map (continued under a new id) reads the newest implement run.
+  const continued = await loadPlan(stub({ '/proj/.kentra-rpir/sessions.map': SESSIONS_MAP }), 'no-such-session')
+  expect(continued.error).toBe('cannot read docs/changes/2026-10-09-later/plan.yaml')
 
   const noPlan = await loadPlan(stub({ '/proj/.kentra-rpir/sessions.map': SESSIONS_MAP }), SELF)
   expect(noPlan.plan).toBe(null)
@@ -174,4 +178,9 @@ test('loadPlan reads the plan and the title through $.fs', async () => {
   }), SELF)
   expect(badPlan.plan).toBe(null)
   expect(typeof badPlan.error === 'string' && isOneLine(badPlan.error)).toBe(true)
+})
+
+test('newestImplementFolder takes the last implement line of any session', () => {
+  expect(newestImplementFolder(SESSIONS_MAP)).toBe('docs/changes/2026-10-09-later')
+  expect(newestImplementFolder('a docs/x spec\n')).toBe(null)
 })

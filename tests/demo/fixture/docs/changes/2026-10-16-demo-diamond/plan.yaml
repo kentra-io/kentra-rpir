@@ -3,7 +3,7 @@ schemaVersion: 0.3.0
 description: |
   A throwaway demo plan for the kentra-rpir milestone graph pane. Four
   milestones in a diamond: alpha first, beta and gamma in parallel on alpha,
-  delta on both. Each writes one file, `out/<name>.txt`, holding the single
+  delta on both. Each sleeps 30 seconds, then writes one dummy file, `out/<name>.txt`, holding the single
   line `<name>`. `sh check.sh` at the project root checks every file that
   exists; it is green on the empty project.
 milestones:
@@ -11,10 +11,12 @@ milestones:
     slug: alpha
     goal: "out/alpha.txt holds the line alpha"
     description: |
-      Creates `out/alpha.txt` with exactly one line, `alpha`. Touch no other file.
+      Waits 30 seconds, then creates `out/alpha.txt` with exactly one line,
+      `alpha`. Touch no other file.
     deliverables: |
       - `out/alpha.txt` — one line, `alpha`.
     steps:
+      - "[ ] Run `sleep 30` (the demo's stand-in for real work, so the pane has time to show the milestone running)."
       - "[ ] Run `mkdir -p out && printf 'alpha\\n' > out/alpha.txt`."
       - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
     contract:
@@ -31,10 +33,12 @@ milestones:
     goal: "out/beta.txt holds the line beta"
     depends-on: [alpha]
     description: |
-      Creates `out/beta.txt` with exactly one line, `beta`. Touch no other file.
+      Waits 30 seconds, then creates `out/beta.txt` with exactly one line,
+      `beta`. Touch no other file.
     deliverables: |
       - `out/beta.txt` — one line, `beta`.
     steps:
+      - "[ ] Run `sleep 30` (the demo's stand-in for real work, so the pane has time to show the milestone running)."
       - "[ ] Run `mkdir -p out && printf 'beta\\n' > out/beta.txt`."
       - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
     contract:
@@ -51,10 +55,12 @@ milestones:
     goal: "out/gamma.txt holds the line gamma"
     depends-on: [alpha]
     description: |
-      Creates `out/gamma.txt` with exactly one line, `gamma`. Touch no other file.
+      Waits 30 seconds, then creates `out/gamma.txt` with exactly one line,
+      `gamma`. Touch no other file.
     deliverables: |
       - `out/gamma.txt` — one line, `gamma`.
     steps:
+      - "[ ] Run `sleep 30` (the demo's stand-in for real work, so the pane has time to show the milestone running)."
       - "[ ] Run `mkdir -p out && printf 'gamma\\n' > out/gamma.txt`."
       - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
     contract:
@@ -71,10 +77,12 @@ milestones:
     goal: "out/delta.txt holds the line delta"
     depends-on: [beta, gamma]
     description: |
-      Creates `out/delta.txt` with exactly one line, `delta`. Touch no other file.
+      Waits 30 seconds, then creates `out/delta.txt` with exactly one line,
+      `delta`. Touch no other file.
     deliverables: |
       - `out/delta.txt` — one line, `delta`.
     steps:
+      - "[ ] Run `sleep 30` (the demo's stand-in for real work, so the pane has time to show the milestone running)."
       - "[ ] Run `mkdir -p out && printf 'delta\\n' > out/delta.txt`."
       - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
     contract:

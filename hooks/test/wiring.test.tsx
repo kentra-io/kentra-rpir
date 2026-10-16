@@ -300,3 +300,98 @@ test('pane header says idle', async ($, on) => {
     await ui.unmount()
   }
 })
+
+// A session that continues under a new id (a background hand-off) starts with
+// no $.state: the run comes back from the transcript and $.store.
+const launchText = (id: string) => `Async agent launched successfully.\nagentId: ${id} (internal ID)`
+const dispatchRow = (prompt: string, id: string) => ({
+  role: 'assistant', text: '',
+  toolUses: [{ tool_use_id: `tu-${id}`, tool: 'Agent', input: { prompt, run_in_background: true }, agentId: id, text: launchText(id) }],
+})
+const handBackRow = (id: string, report: string) => ({
+  role: 'user', text: `Another Claude session sent a message:\n<agent-message from="${id}">\n  ${report}\n</agent-message>`, toolUses: [],
+})
+const mergeRow = (n: number, slug: string) => ({
+  role: 'assistant', text: '',
+  toolUses: [{ tool_use_id: `tu-m${n}`, tool: 'Bash', input: { command: `git -C /w merge --no-ff rpir/x--m${n} -m "Merge M${n} ${slug}"` }, text: 'Merge made.' }],
+})
+const HISTORY = [
+  { role: 'user', text: '/kentra-rpir:implement docs/changes/demo', toolUses: [] },
+  dispatchRow(implPrompt(1, 'a'), 'x1'),
+  handBackRow('x1', 'STATUS: DONE'),
+  dispatchRow(verifyPrompt(1, 'a'), 'x2'),
+  handBackRow('x2', 'VERDICT: PASS'),
+  mergeRow(1, 'a'),
+  dispatchRow(implPrompt(2, 'b'), 'x3'),
+]
+function transcript(on: On, rows: unknown[], running: string[] = []): void {
+  on('session.messages', () => ({ value: rows as never }))
+  on('agent.list', () => ({
+    value: running.map(id => ({ id, status: 'running', description: 'm', type: 'general-purpose' })) as never,
+  }))
+  on('command.register', () => ({ value: undefined }) as never)
+}
+const START = { cwd: '/repo', surface: 'terminal', isInteractive: true } as const
+
+test('a continued session rebuilds the run and reopens the pane', async ($, on) => {
+  const kit = setup(on, filesWithPlan(3))
+  transcript(on, HISTORY, ['x3'])
+  // What the previous session stored: M1's agents with their real timings.
+  const stored: RunState = {
+    startedAt: 1000, plan: null, planError: null,
+    milestones: { a: { number: 1, slug: 'a', agents: ['x1', 'x2'], firstDispatchAt: 1000, mergedAt: null } },
+    agents: {
+      x1: { agentId: 'x1', toolUseId: null, number: 1, slug: 'a', role: 'impl', startedAt: 1000, endedAt: 4000, lastTool: null, outcome: 'DONE' },
+      x2: { agentId: 'x2', toolUseId: null, number: 1, slug: 'a', role: 'verify', startedAt: 5000, endedAt: 7000, lastTool: null, outcome: null },
+    },
+  }
+  mock.store(on, { 'run:/repo': stored })
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+  await $.session.start(START as never)
+
+  const run = runOf(kit)!
+  expect(run.startedAt).toBe(1000)
+  expect(run.agents['x1']!.endedAt).toBe(4000)
+  expect(run.agents['x2']!.outcome).toBe('PASS')
+  expect(run.milestones['a']!.mergedAt).not.toBeNull()
+  expect(run.agents['x3']!.endedAt).toBeNull()
+  expect(run.plan!.milestones).toHaveLength(3)
+  expect(kit.opened).toContain(PANE)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', component: 'Pane', props: PANE_PROPS, requestId: PANE } as never)
+  expect(await ui.find({ type: 'Text', text: /✓ merged/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /● implementing/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /1 merged · 1 implementing · 1 waiting/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('rpir-graph rebuilds a run the session never saw', async ($, on) => {
+  const kit = setup(on, filesWithPlan(3))
+  transcript(on, HISTORY)
+  await $.command.run({ ...RUN_GRAPH } as never)
+  const run = runOf(kit)!
+  expect(run.milestones['a']!.mergedAt).not.toBeNull()
+  expect(Object.keys(run.agents).sort()).toEqual(['x1', 'x2', 'x3'])
+  expect(kit.opened).toContain(PANE)
+})
+
+test('the orchestrator turn end catches what live events missed', async ($, on) => {
+  const kit = setup(on, filesWithPlan(3))
+  const rows: unknown[] = []
+  transcript(on, rows)
+  const impl = await spawn($, implPrompt(1, 'a'), 'tu-1')
+  // The report and the merge reach only the transcript.
+  rows.push(dispatchRow(implPrompt(1, 'a'), impl), handBackRow(impl, 'STATUS: DONE'), mergeRow(1, 'a'))
+  await $.turn.complete({ answer: 'Merged M1.', durationMs: 1, isAborted: false, turnId: 'main-1', reason: 'answer' } as never)
+  const run = runOf(kit)!
+  expect(run.agents[impl]!.outcome).toBe('DONE')
+  expect(run.milestones['a']!.mergedAt).not.toBeNull()
+})
+
+test('a session with no dispatches starts no run', async ($, on) => {
+  const kit = setup(on, filesWithPlan(3))
+  transcript(on, [{ role: 'user', text: 'hello', toolUses: [] }])
+  on('session.start', async (_$, e) => ({ cwd: e.cwd }))
+  await $.session.start(START as never)
+  expect(runOf(kit)).toBeNull()
+  expect(kit.opened).toEqual([])
+})

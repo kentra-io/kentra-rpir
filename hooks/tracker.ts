@@ -1,7 +1,8 @@
 // The model of an implement run: pure functions over the shared types.
 // No `$`, no clock — every event carries `at`, every view takes `now`.
 import type {
-  AgentRun, MilestoneRun, MilestoneView, Outcome, Role, RunClock, RunState, Status, TrackerEvent,
+  AgentRun, LiveAgents, MilestoneRun, MilestoneView, Outcome, Role, RunClock, RunState, Status, TrackerEvent,
+  TranscriptRow,
 } from '../types'
 
 const STATUSES: readonly Status[] = [
@@ -197,4 +198,119 @@ export function runClock(state: RunState, now: number): RunClock {
   const allMerged = pms.length > 0 &&
     pms.every((m) => (state.milestones[m.slug]?.mergedAt ?? null) !== null)
   return { phase: allMerged ? 'done' : 'idle', elapsedMs }
+}
+
+// What the transcript says of a background agent: the Agent tool's launch
+// notice names its id; its report comes back as a hand-back message or a
+// task notification in the main conversation.
+const LAUNCH_ID = /\bagentId:\s*([A-Za-z0-9_-]+)/
+const LAUNCH_NOTICE = /^\s*(?:Async agent launched|Remote agent launched)/
+const HANDBACK = /<agent-message from="([^"]+)">/g
+const NOTIFICATION = /<task-notification>([\s\S]*?)<\/task-notification>/g
+const TASK_ID = /<task-id>\s*([^<\s]+)\s*<\/task-id>/
+const TASK_DONE = /<status>\s*(completed|failed|killed)\s*<\/status>/
+
+/** True when the transcript holds at least one milestone dispatch. */
+export function hasDispatch(rows: readonly TranscriptRow[]): boolean {
+  return rows.some((r) => r.role === 'assistant' && r.toolUses.some((u) =>
+    u.tool === 'Agent' && typeof u.input.prompt === 'string' && parseDispatch(u.input.prompt) !== null))
+}
+
+/** The agent ids of every milestone dispatch in the transcript, in order. */
+export function dispatchedAgentIds(rows: readonly TranscriptRow[]): string[] {
+  const ids: string[] = []
+  for (const r of rows) {
+    if (r.role !== 'assistant') continue
+    for (const u of r.toolUses) {
+      if (u.tool !== 'Agent' || typeof u.input.prompt !== 'string' || parseDispatch(u.input.prompt) === null) continue
+      const id = u.agentId ?? LAUNCH_ID.exec(u.text ?? '')?.[1]
+      if (id !== undefined) ids.push(id)
+    }
+  }
+  return ids
+}
+
+/** Ends an agent the transcript or the engine says has ended. The first end
+ *  time seen stays; an outcome fills in when none was read yet. */
+function endAgent(state: RunState, agentId: string, outcome: Outcome | null, at: number): RunState {
+  const a = state.agents[agentId]
+  if (a === undefined) return state
+  const endedAt = a.endedAt ?? at
+  const next = outcome ?? a.outcome
+  if (endedAt === a.endedAt && next === a.outcome) return state
+  return withAgent(state, { ...a, endedAt, outcome: next, lastTool: null })
+}
+
+/** Brings `state` in line with the session's transcript and the engine's live
+ *  agents, so a run the live events missed (a session continued under a new
+ *  id, a reload, a dropped event) still reads right:
+ *  - every milestone dispatch in the transcript is an agent of its milestone,
+ *    in transcript order (one first seen here starts at `now`);
+ *  - a hand-back or finished task notification ends its agent and gives it
+ *    the report's STATUS/VERDICT; so does a foreground Agent call's answer;
+ *  - every successful `git merge --no-ff … -m "Merge M<n> …"` merges M<n>;
+ *  - last, `live` wins: an agent the engine runs is running, one it says
+ *    ended is ended (agents it does not list keep what the transcript says).
+ *  Pure, and idempotent: reconciling twice changes nothing more. */
+export function reconcile(
+  state: RunState,
+  rows: readonly TranscriptRow[],
+  now: number,
+  live: LiveAgents = {},
+): RunState {
+  let s = state
+  const order = new Map<string, number>()
+  for (const r of rows) {
+    if (r.role === 'assistant') {
+      for (const u of r.toolUses) {
+        if (u.tool === 'Agent') {
+          const prompt = typeof u.input.prompt === 'string' ? u.input.prompt : ''
+          if (parseDispatch(prompt) === null) continue
+          const id = u.agentId ?? LAUNCH_ID.exec(u.text ?? '')?.[1]
+          if (id === undefined) continue
+          if (!order.has(id)) order.set(id, order.size)
+          if (s.agents[id] === undefined) {
+            s = reduce(s, { kind: 'spawn', agentId: id, toolUseId: null, prompt, at: now })
+          }
+          // A foreground call's answer is the report; a background one's is the launch notice.
+          if (u.text !== undefined && !LAUNCH_NOTICE.test(u.text) && u.input.run_in_background !== true) {
+            s = endAgent(s, id, parseOutcome(u.text), now)
+          }
+        } else if (u.tool === 'Bash' && typeof u.input.command === 'string' && u.text !== undefined && u.isError !== true) {
+          s = reduce(s, { kind: 'bash', command: u.input.command, isError: false, at: now })
+        }
+      }
+    } else {
+      const marks = [...r.text.matchAll(HANDBACK)]
+      marks.forEach((m, i) => {
+        const end = i + 1 < marks.length ? marks[i + 1].index : r.text.length
+        s = endAgent(s, m[1], parseOutcome(r.text.slice(m.index, end)), now)
+      })
+      for (const n of r.text.matchAll(NOTIFICATION)) {
+        const id = TASK_ID.exec(n[1])?.[1]
+        if (id !== undefined && TASK_DONE.test(n[1])) {
+          s = endAgent(s, id, parseOutcome(n[1].replace(/<[^>]*>/g, '\n')), now)
+        }
+      }
+    }
+  }
+  for (const [id, phase] of Object.entries(live)) {
+    const a = s.agents[id]
+    if (a === undefined) continue
+    if (phase === 'running' && a.endedAt !== null) s = withAgent(s, { ...a, endedAt: null })
+    if (phase === 'ended') s = endAgent(s, id, null, now)
+  }
+  // Each milestone's agents in transcript order, so "the newest agent" is the newest dispatch.
+  if (order.size > 0) {
+    const rank = (id: string) => order.get(id) ?? Number.MAX_SAFE_INTEGER
+    const milestones: Record<string, MilestoneRun> = {}
+    let moved = false
+    for (const [slug, m] of Object.entries(s.milestones)) {
+      const sorted = [...m.agents].sort((x, y) => rank(x) - rank(y))
+      moved ||= sorted.some((id, i) => id !== m.agents[i])
+      milestones[slug] = { ...m, agents: sorted }
+    }
+    if (moved) s = { ...s, milestones }
+  }
+  return s
 }

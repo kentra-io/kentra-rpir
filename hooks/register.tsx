@@ -1,11 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Hook, Register, Timer } from 'claude-code'
 
-import type { RunState, Status, TrackerEvent } from '../types'
+import type { LiveAgents, RunState, Status, TrackerEvent, TranscriptRow } from '../types'
 import { bandLine, cut, headerLine, layoutGraph } from './layout'
 import { headerSlugs, isArrowScroll, milestonesOf, nextSelection, toolSummary, viewsOf } from './nav'
 import { loadPlan } from './plan'
-import { countByStatus, emptyRun, parseDispatch, reduce, runClock, viewOf } from './tracker'
+import {
+  countByStatus, dispatchedAgentIds, emptyRun, hasDispatch, parseDispatch, reconcile, reduce, runClock, viewOf,
+} from './tracker'
 
 const PANE = 'rpir-graph'
 const TITLE = 'kentra-rpir'
@@ -24,6 +26,100 @@ function hasRunning(run: RunState | null): boolean {
 
 async function apply($: EngineInterface, ev: TrackerEvent): Promise<void> {
   await update($, runAtom, run => (run === null ? run : reduce(run, ev)))
+  // A tool call changes only the box's current-tool line: not worth a write.
+  if (ev.kind !== 'tool') await persist($)
+}
+
+/** The run is kept in $.store too, keyed by project root: $.state is the
+ *  session's, and a session that continues under a new id (a background
+ *  hand-off, a resume) starts with none. */
+async function storeKey($: EngineInterface): Promise<string> {
+  return `run:${await $.session.root()}`
+}
+
+async function persist($: EngineInterface): Promise<void> {
+  try {
+    const run = await read($, runAtom)
+    if (run !== null) await $.store.set(await storeKey($), run)
+  } catch {
+    // a lost write costs only the timings; the transcript still rebuilds the run
+  }
+}
+
+async function readStored($: EngineInterface): Promise<RunState | null> {
+  try {
+    const v = (await $.store.get(await storeKey($))) as RunState | undefined | null
+    const ok = v != null && typeof v === 'object' && typeof v.startedAt === 'number' &&
+      typeof v.agents === 'object' && typeof v.milestones === 'object'
+    return ok ? v : null
+  } catch {
+    return null
+  }
+}
+
+/** The engine's own view of which agents run now ($.agent.list()). */
+async function liveAgents($: EngineInterface): Promise<LiveAgents> {
+  const out: LiveAgents = {}
+  try {
+    for (const a of await $.agent.list()) {
+      if (a.status === 'running' || a.status === 'pending') out[a.id] = 'running'
+      else if (a.status === 'completed' || a.status === 'failed' || a.status === 'killed') out[a.id] = 'ended'
+    }
+  } catch {
+    // no list: the transcript decides
+  }
+  return out
+}
+
+/** Loads the plan into the run; a plan that cannot be read now never
+ *  replaces one read before (a continued session's id may not be in
+ *  sessions.map yet). */
+async function refreshPlan($: EngineInterface): Promise<void> {
+  const loaded = await loadPlan($, await $.session.id())
+  const run = await read($, runAtom)
+  if (run === null || (loaded.plan === null && run.plan !== null)) return
+  await apply($, { kind: 'plan', plan: loaded.plan, error: loaded.error })
+}
+
+/** Brings the run in line with the session's transcript and the engine's
+ *  live agents (tracker.reconcile). With no run yet, adopts the stored one
+ *  when the transcript dispatched its agents, else starts one, but only when
+ *  the transcript holds a milestone dispatch. Returns whether a run appeared. */
+async function sync($: EngineInterface): Promise<boolean> {
+  let rows: TranscriptRow[]
+  try {
+    rows = (await $.session.messages()) as unknown as TranscriptRow[]
+  } catch {
+    return false
+  }
+  const before = await read($, runAtom)
+  if (before === null && !hasDispatch(rows)) return false
+  const now = await $.clock.now()
+  let base = before
+  if (base === null) {
+    const stored = await readStored($)
+    const ids = new Set(dispatchedAgentIds(rows))
+    base = stored !== null && Object.keys(stored.agents).some(id => ids.has(id)) ? stored : emptyRun(now)
+  }
+  const live = await liveAgents($)
+  const start = base
+  await update($, runAtom, run => reconcile(run ?? start, rows, now, live))
+  if (before === null || before.plan === null) await refreshPlan($)
+  await persist($)
+  if (hasRunning(await read($, runAtom))) ensureTicker($)
+  $.ui.invalidate('ui.render')
+  return before === null
+}
+
+/** sync, then open the pane unasked when it brought back a run still going. */
+async function syncAndShow($: EngineInterface): Promise<void> {
+  try {
+    if (!(await sync($))) return
+    const run = await read($, runAtom)
+    if (run !== null && runClock(run, await $.clock.now()).phase !== 'done') await autoOpen($)
+  } catch {
+    // tracking never breaks the session
+  }
 }
 
 function ensureTicker($: EngineInterface): void {
@@ -140,10 +236,17 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: PANE, description: 'Toggle the kentra-rpir milestone graph pane' })
     if (hasRunning(await read($, runAtom))) ensureTicker($)
-    return next(e)
+    const result = await next(e)
+    await syncAndShow($)
+    return result
   })
 
   on('command.run', { command: PANE }, async $ => {
+    try {
+      await sync($)
+    } catch {
+      // draw what is tracked
+    }
     const done = await togglePane($)
     return { text: `Milestone graph pane ${done}.` }
   })
@@ -159,11 +262,12 @@ export const register: Register = on => {
     const result = await next(e)
     if (result.deny !== undefined || result.agentId === undefined) return result
     try {
+      // No run, but earlier dispatches in the transcript: a continued session. Rebuild first.
+      if ((await read($, runAtom)) === null) await sync($)
       const isFirst = (await read($, runAtom)) === null
       if (isFirst) await update($, runAtom, run => run ?? emptyRun(at))
       await apply($, { kind: 'spawn', agentId: result.agentId, toolUseId: e.tool_use_id || null, prompt: e.prompt, at })
-      const loaded = await loadPlan($, await $.session.id())
-      await apply($, { kind: 'plan', plan: loaded.plan, error: loaded.error })
+      await refreshPlan($)
       ensureTicker($)
       if (isFirst) await autoOpen($)
     } catch {
@@ -190,15 +294,19 @@ export const register: Register = on => {
   })
 
   on('turn.complete', async ($, e, next) => {
-    if (e.agentId !== undefined) {
-      try {
+    try {
+      if (e.agentId === undefined) {
+        // The orchestrator's turn ended: check the run against the transcript,
+        // which holds every hand-back and merge, seen live or not.
+        await sync($)
+      } else {
         const run = await read($, runAtom)
         if (run !== null && run.agents[e.agentId] !== undefined) {
           await apply($, { kind: 'agentDone', agentId: e.agentId, toolUseId: null, resultText: e.answer || null, at: await $.clock.now() })
         }
-      } catch {
-        // tracking never breaks a turn
       }
+    } catch {
+      // tracking never breaks a turn
     }
     return next(e)
   })

@@ -132,7 +132,7 @@ test('fail then fix then pass then merge', () => {
   const v = viewOf(s, 'store', 99_000)
   expect(v.attempts).toBe(2)
   expect(v.verifyRounds).toBe(2)
-  expect(v.implMs).toBe((4000 - 1000) + (10_000 - 8000))
+  expect(v.implMs).toBe((4100 - 1000) + (10_000 - 8000)) // the last end wins
   expect(v.verifyMs).toBe((7000 - 5000) + (12_000 - 11_000))
   expect(v.wallMs).toBe(13_000 - 1000)
   expect(v.runningAgentId).toBeNull()
@@ -194,4 +194,26 @@ test('no plan still tracks dispatches', () => {
   expect(viewOf(s, 'a', 1000).status).toBe('implementing')
   expect(viewOf(s, 'b', 1000).implMs).toBe(900)
   expect(viewOf(s, 'never-seen', 1000).status).toBe('waiting')
+})
+
+test('a subagent that ends a turn and wakes again keeps running', () => {
+  let s = withPlan(planOf([[1, 'store', []]]))
+  s = apply(s, [
+    spawn('i1', implPrompt(1, 'store'), 0),
+    { kind: 'tool', agentId: 'i1', summary: 'Bash: sleep 40', at: 1000 },
+    turnDone('i1', 2000),
+  ])
+  expect(viewOf(s, 'store', 3000).runningAgentId).toBeNull()
+  s = apply(s, [{ kind: 'resume', agentId: 'i1', at: 41000 }])
+  let v = viewOf(s, 'store', 42000)
+  expect(v.runningAgentId).toBe('i1')
+  expect(v.implMs).toBe(42000)
+  s = apply(s, [turnDone('i1', 43000), done('i1', 'STATUS: DONE', 43100)])
+  v = viewOf(s, 'store', 50000)
+  expect(v.runningAgentId).toBeNull()
+  expect(v.implMs).toBe(43100)
+  expect(s.agents['i1']!.outcome).toBe('DONE')
+  // a tool call after a turn's end reopens the agent too
+  s = apply(s, [{ kind: 'tool', agentId: 'i1', summary: 'Read: a.ts', at: 44000 }])
+  expect(viewOf(s, 'store', 45000).currentTool).toBe('Read: a.ts')
 })

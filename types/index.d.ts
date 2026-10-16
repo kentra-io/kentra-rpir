@@ -43,6 +43,7 @@ export type RunState = {
 export type TrackerEvent =
   | { kind: 'spawn'; agentId: string; toolUseId: string | null; prompt: string; at: number }
   | { kind: 'tool'; agentId: string; summary: string; at: number }
+  | { kind: 'resume'; agentId: string; at: number }
   | { kind: 'agentDone'; agentId: string | null; toolUseId: string | null; resultText: string | null; at: number }
   | { kind: 'bash'; command: string; isError: boolean; at: number }
   | { kind: 'plan'; plan: PlanGraph | null; error: string | null }

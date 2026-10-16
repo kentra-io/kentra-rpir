@@ -1176,7 +1176,7 @@ milestones:
         plan is still tracked.
       - `tool`: set that agent's `lastTool = summary`; unknown agent → unchanged.
       - `agentDone`: find the agent by `agentId`, else by `toolUseId`; set
-        `endedAt = at` (keep an earlier endedAt if already set), `lastTool = null`,
+        `endedAt = at` (the latest end wins; a later `tool` or `resume` event reopens the agent, since a subagent can end several turns), `lastTool = null`,
         and `outcome = parseOutcome(resultText)` when resultText is non-null
         (a later agentDone with text fills an outcome left null).
       - `bash`: `parseMerge(command)`; when it returns n, `isError` is false and a
@@ -1492,7 +1492,7 @@ milestones:
             const v = viewOf(s, 'store', 99_000)
             expect(v.attempts).toBe(2)
             expect(v.verifyRounds).toBe(2)
-            expect(v.implMs).toBe((4000 - 1000) + (10_000 - 8000))
+            expect(v.implMs).toBe((4100 - 1000) + (10_000 - 8000)) // the last end wins
             expect(v.verifyMs).toBe((7000 - 5000) + (12_000 - 11_000))
             expect(v.wallMs).toBe(13_000 - 1000)
             expect(v.runningAgentId).toBeNull()

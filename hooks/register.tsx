@@ -101,6 +101,7 @@ export const handleToolCall: Hook<'tool.call'> = async ($, e, next) => {
       const run = await read($, runAtom)
       if (run !== null && run.agents[e.agentId] !== undefined) {
         await apply($, { kind: 'tool', agentId: e.agentId, summary: toolSummary(e.tool, input), at: await $.clock.now() })
+        ensureTicker($)
       }
     } catch {
       // tracking never breaks a tool call
@@ -167,6 +168,21 @@ export const register: Register = on => {
   })
 
   on('tool.call', handleToolCall)
+
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId !== undefined) {
+      try {
+        const run = await read($, runAtom)
+        if (run !== null && run.agents[e.agentId] !== undefined) {
+          await apply($, { kind: 'resume', agentId: e.agentId, at: await $.clock.now() })
+          ensureTicker($)
+        }
+      } catch {
+        // tracking never breaks a turn
+      }
+    }
+    return next(e)
+  })
 
   on('turn.complete', async ($, e, next) => {
     if (e.agentId !== undefined) {

@@ -85,15 +85,24 @@ export function reduce(state: RunState, ev: TrackerEvent): RunState {
       }
     }
     case 'tool': {
+      // A tool call means the agent is running, even after one of its turns ended.
       const a = state.agents[ev.agentId]
-      if (a === undefined || a.lastTool === ev.summary) return state
-      return withAgent(state, { ...a, lastTool: ev.summary })
+      if (a === undefined || (a.lastTool === ev.summary && a.endedAt === null)) return state
+      return withAgent(state, { ...a, lastTool: ev.summary, endedAt: null })
+    }
+    case 'resume': {
+      // A subagent runs one turn per wake-up (say, after a background shell
+      // finished): a new turn reopens an agent an earlier turn's end closed.
+      const a = state.agents[ev.agentId]
+      if (a === undefined || a.endedAt === null) return state
+      return withAgent(state, { ...a, endedAt: null })
     }
     case 'agentDone': {
       const a = findAgent(state, ev.agentId, ev.toolUseId)
       if (a === null) return state
       const outcome = ev.resultText !== null ? (parseOutcome(ev.resultText) ?? a.outcome) : a.outcome
-      const endedAt = a.endedAt ?? ev.at
+      // The last end wins: a subagent may end several turns before it is done.
+      const endedAt = a.endedAt === null ? ev.at : Math.max(a.endedAt, ev.at)
       if (endedAt === a.endedAt && a.lastTool === null && outcome === a.outcome) return state
       return withAgent(state, { ...a, endedAt, lastTool: null, outcome })
     }

@@ -113,7 +113,10 @@ export const handleToolCall: Hook<'tool.call'> = async ($, e, next) => {
     if ((await read($, runAtom)) === null) return result
     const at = await $.clock.now()
     if (e.tool === 'Agent') {
-      if (input.run_in_background !== true) {
+      // A background dispatch answers at once with a launch notice; the
+      // subagent's own turn.complete ends it.
+      const status = (result.result as { status?: unknown } | undefined)?.status
+      if (input.run_in_background !== true && status !== 'async_launched' && status !== 'remote_launched') {
         const text = typeof result.text === 'string' ? result.text : null
         await apply($, { kind: 'agentDone', agentId: null, toolUseId: e.tool_use_id ?? null, resultText: text, at })
       }

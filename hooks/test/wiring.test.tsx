@@ -48,7 +48,7 @@ type Kit = {
   /** Latest value written to each of the plugin's $.state keys (the kit's Engine has no $.state). */
   states: Map<string, unknown>
   /** Answers a main-session Agent call; returns the subagent's report. */
-  onAgent: ((e: { prompt?: unknown; tool_use_id?: string }) => Promise<string>) | null
+  onAgent: ((e: { prompt?: unknown; tool_use_id?: string }) => Promise<string | object>) | null
 }
 
 function setup(on: On, files: Record<string, string | undefined>): Kit {
@@ -91,7 +91,9 @@ function setup(on: On, files: Record<string, string | undefined>): Kit {
   on('turn.complete', (_$, e) => ({ text: e.answer }))
   on('tool.call', async (_$, e) => {
     if (e.tool === 'Agent' && kit.onAgent !== null) {
-      return { result: {}, text: await kit.onAgent(e as never) } as never
+      const answer = await kit.onAgent(e as never)
+      if (typeof answer !== 'string') return answer as never
+      return { result: {}, text: answer } as never
     }
     return { result: { stdout: '', stderr: '', interrupted: false }, text: '' } as never
   })
@@ -246,4 +248,23 @@ test('narrow terminal: unasked open waits', async ($, on) => {
   expect(kit.panes.get(PANE)).toBe(true)
   expect(paneOpenOf(kit)).toBe(true)
   expect(String((reply as { text?: unknown }).text)).toMatch(/opened/)
+})
+
+test('background dispatch ends on the subagent turn, not the launch notice', async ($, on) => {
+  const kit = setup(on, filesWithPlan(3))
+  let agentId = ''
+  kit.onAgent = async e => {
+    agentId = await spawn($, String(e.prompt), e.tool_use_id ?? 'tu-1')
+    return { result: { status: 'async_launched', isAsync: true, agentId, description: 'M1 a' }, text: 'Async agent launched' } as never
+  }
+  await $.tool.call({ tool: 'Agent', prompt: implPrompt(1, 'a'), description: 'M1 a', subagent_type: 'general-purpose' } as never)
+  expect(runOf(kit)!.agents[agentId]!.endedAt).toBeNull()
+
+  await subagentTool($, agentId, './gradlew test')
+  expect(runOf(kit)!.agents[agentId]!.lastTool).toBe('Bash: ./gradlew test')
+
+  await finish($, agentId, 'Implemented.\n\nSTATUS: DONE')
+  const agent = runOf(kit)!.agents[agentId]!
+  expect(agent.endedAt).not.toBeNull()
+  expect(agent.outcome).toBe('DONE')
 })

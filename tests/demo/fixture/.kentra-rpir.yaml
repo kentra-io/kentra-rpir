@@ -1,0 +1,12 @@
+# kentra-rpir configuration for the throwaway demo project. Cheap roles.
+changesDir: docs/changes
+tracker: none
+constitution: false
+tier: light
+roles:
+  implementer: { agent: "kentra-rpir:implementer", model: haiku }
+  verifier:    { agent: "kentra-rpir:verifier",    model: haiku }
+implement:
+  worktreesDir: .worktrees
+  branchPrefix: rpir/
+  openPullRequest: false

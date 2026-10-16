@@ -6,6 +6,7 @@ sh tests/sessions.test.sh
 sh tests/planning-log.test.sh
 sh tests/commit-change.test.sh
 sh tests/assemble-plan.test.sh
+sh tests/demo.test.sh
 node tests/check-workflows.mjs
 sh tests/check-templates.sh
 

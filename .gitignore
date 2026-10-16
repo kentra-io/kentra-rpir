@@ -8,3 +8,6 @@
 
 # research spikes live in the change folder and never reach git
 docs/changes/*/research/spikes/
+
+# Claude Code lays the mod API types here when it loads the plugin
+.claude-plugin/types/

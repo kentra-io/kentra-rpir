@@ -1,10 +1,11 @@
 {
   "name": "kentra-rpir",
   "description": "Runs one change — feature, bug or chore — through spec → plan → implement → review. Interactive spec with background premise research, a milestoned-plan-dag plan an implementer can follow without exploring, parallel milestone implementation in worktrees with a fresh verifier per milestone, and a retro read from the session transcripts.",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "author": { "name": "Kentra" },
   "homepage": "https://github.com/kentra-io/kentra-rpir",
   "repository": "https://github.com/kentra-io/kentra-rpir",
   "license": "MIT",
-  "keywords": ["rpi", "rpir", "spec", "plan", "implement", "review", "retro", "worktrees", "subagents"]
+  "keywords": ["rpi", "rpir", "spec", "plan", "implement", "review", "retro", "worktrees", "subagents"],
+  "types": "./types/index.d.ts"
 }

@@ -1,0 +1,88 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kentra-io/milestoned-plan-dag/v0.3.0/schema/plan.schema.json
+schemaVersion: 0.3.0
+description: |
+  A throwaway demo plan for the kentra-rpir milestone graph pane. Four
+  milestones in a diamond: alpha first, beta and gamma in parallel on alpha,
+  delta on both. Each writes one file, `out/<name>.txt`, holding the single
+  line `<name>`. `sh check.sh` at the project root checks every file that
+  exists; it is green on the empty project.
+milestones:
+  - number: 1
+    slug: alpha
+    goal: "out/alpha.txt holds the line alpha"
+    description: |
+      Creates `out/alpha.txt` with exactly one line, `alpha`. Touch no other file.
+    deliverables: |
+      - `out/alpha.txt` — one line, `alpha`.
+    steps:
+      - "[ ] Run `mkdir -p out && printf 'alpha\\n' > out/alpha.txt`."
+      - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
+    contract:
+      check: sh check.sh
+      criteria:
+        - name: "check.sh::alpha"
+          given: "the project with this milestone's file written"
+          when: "`sh check.sh` runs at the project root"
+          then: "it prints `ok` and exits 0, and `out/alpha.txt` reads exactly `alpha`"
+      paths:
+        - out/alpha.txt
+  - number: 2
+    slug: beta
+    goal: "out/beta.txt holds the line beta"
+    depends-on: [alpha]
+    description: |
+      Creates `out/beta.txt` with exactly one line, `beta`. Touch no other file.
+    deliverables: |
+      - `out/beta.txt` — one line, `beta`.
+    steps:
+      - "[ ] Run `mkdir -p out && printf 'beta\\n' > out/beta.txt`."
+      - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
+    contract:
+      check: sh check.sh
+      criteria:
+        - name: "check.sh::beta"
+          given: "the project with this milestone's file written"
+          when: "`sh check.sh` runs at the project root"
+          then: "it prints `ok` and exits 0, and `out/beta.txt` reads exactly `beta`"
+      paths:
+        - out/beta.txt
+  - number: 3
+    slug: gamma
+    goal: "out/gamma.txt holds the line gamma"
+    depends-on: [alpha]
+    description: |
+      Creates `out/gamma.txt` with exactly one line, `gamma`. Touch no other file.
+    deliverables: |
+      - `out/gamma.txt` — one line, `gamma`.
+    steps:
+      - "[ ] Run `mkdir -p out && printf 'gamma\\n' > out/gamma.txt`."
+      - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
+    contract:
+      check: sh check.sh
+      criteria:
+        - name: "check.sh::gamma"
+          given: "the project with this milestone's file written"
+          when: "`sh check.sh` runs at the project root"
+          then: "it prints `ok` and exits 0, and `out/gamma.txt` reads exactly `gamma`"
+      paths:
+        - out/gamma.txt
+  - number: 4
+    slug: delta
+    goal: "out/delta.txt holds the line delta"
+    depends-on: [beta, gamma]
+    description: |
+      Creates `out/delta.txt` with exactly one line, `delta`. Touch no other file.
+    deliverables: |
+      - `out/delta.txt` — one line, `delta`.
+    steps:
+      - "[ ] Run `mkdir -p out && printf 'delta\\n' > out/delta.txt`."
+      - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
+    contract:
+      check: sh check.sh
+      criteria:
+        - name: "check.sh::delta"
+          given: "the project with this milestone's file written"
+          when: "`sh check.sh` runs at the project root"
+          then: "it prints `ok` and exits 0, and `out/delta.txt` reads exactly `delta`"
+      paths:
+        - out/delta.txt

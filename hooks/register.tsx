@@ -5,7 +5,7 @@ import type { RunState, Status, TrackerEvent } from '../types'
 import { bandLine, cut, headerLine, layoutGraph } from './layout'
 import { headerSlugs, isArrowScroll, milestonesOf, nextSelection, toolSummary, viewsOf } from './nav'
 import { loadPlan } from './plan'
-import { countByStatus, emptyRun, parseDispatch, reduce, viewOf } from './tracker'
+import { countByStatus, emptyRun, parseDispatch, reduce, runClock, viewOf } from './tracker'
 
 const PANE = 'rpir-graph'
 const TITLE = 'kentra-rpir'
@@ -81,14 +81,19 @@ async function openTranscript($: EngineInterface, slug: string): Promise<void> {
   await $.ui.view({ agentId })
 }
 
-function styleOf(status: Status | null): { color?: string; dimColor?: boolean } {
+/** Colour of a status's box (spec requirement 13). Exported for the wiring test. */
+export function styleOf(status: Status | null): { color?: string; dimColor?: boolean } {
   switch (status) {
-    case 'merged': return { color: 'success' }
-    case 'stuck': return { color: 'error' }
     case 'implementing':
     case 'verifying':
-    case 'fixing': return { color: 'claude' }
+    case 'fixing':
+    case 'implemented':
+    case 'verified': return { color: '#5FAFFF' }
+    case 'passed':
+    case 'merged': return { color: 'success' }
     case 'waiting': return { dimColor: true }
+    case 'failed': return { color: 'warning' }
+    case 'stuck': return { color: 'error' }
     default: return {}
   }
 }
@@ -241,7 +246,7 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         <Text dimColor wrap="truncate-end">
-          {headerLine(title, countByStatus(run, now), now - run.startedAt, width)}
+          {headerLine(title, countByStatus(run, now), runClock(run, now), width)}
         </Text>
         {run.planError !== null && (
           <Text color="warning" wrap="truncate-end">

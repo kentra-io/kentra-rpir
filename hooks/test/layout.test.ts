@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import type { MilestoneView, PlanMilestone, Status } from '../../types'
+import type { MilestoneView, PlanMilestone, RunClock, Status } from '../../types'
 import {
   bandLine,
   cut,
@@ -8,6 +8,7 @@ import {
   layoutGraph,
   layoutWithLanes,
   orderForDrawing,
+  STATUS_LABEL,
   STATUS_MARK,
 } from '../layout'
 
@@ -161,14 +162,14 @@ test('formatDuration cut headerLine bandLine', () => {
     failed: 0, fixing: 0, passed: 0, merged: 2, stuck: 0,
   }
   const title = 'A very long change title that would never fit beside the counts in a narrow pane'
-  const header = headerLine(title, counts, 125_000, 80)
+  const header = headerLine(title, counts, { phase: 'running', elapsedMs: 125_000 }, 80)
   expect(header).not.toContain('\n')
   expect(len(header)).toBeLessThanOrEqual(80)
   expect(header).toContain('…')
   expect(header).toContain('2 merged · 1 verifying · 1 implementing · 3 waiting')
   expect(header).toBe('A very long chang… — 2 merged · 1 verifying · 1 implementing · 3 waiting — 2m05s')
   expect(header.endsWith('2m05s')).toBe(true)
-  expect(len(headerLine(title, counts, 125_000, 40))).toBeLessThanOrEqual(40)
+  expect(len(headerLine(title, counts, { phase: 'running', elapsedMs: 125_000 }, 40))).toBeLessThanOrEqual(40)
 
   const ms = [m(1, 'a'), m(2, 'b'), m(3, 'c', ['a']), m(4, 'd', ['b']), m(5, 'e', ['c', 'd'])]
   const views = {
@@ -183,4 +184,98 @@ test('formatDuration cut headerLine bandLine', () => {
   expect(len(narrow)).toBeLessThanOrEqual(20)
   expect(narrow).not.toContain('\n')
   expect(narrow.endsWith('…')).toBe(true)
+})
+
+test('hand-off status lines', () => {
+  const ms = [m(1, 'p'), m(2, 'q'), m(3, 'r'), m(4, 's')]
+  const views = {
+    p: view({ status: 'implemented', attempts: 1 }),
+    q: view({ status: 'verified', attempts: 1, verifyRounds: 1 }),
+    r: view({ status: 'passed', attempts: 1, verifyRounds: 1 }),
+    s: view({ status: 'failed', attempts: 1, verifyRounds: 1 }),
+  }
+  const expected: Record<string, string> = {
+    p: '◌ implemented · awaiting verify',
+    q: '◌ verified · awaiting verdict',
+    r: '◑ passed · awaiting merge',
+    s: '✗ failed · awaiting fix',
+  }
+  expect(STATUS_LABEL.implemented).toBe('implemented · awaiting verify')
+  expect(STATUS_LABEL.verified).toBe('verified · awaiting verdict')
+  expect(STATUS_LABEL.passed).toBe('passed · awaiting merge')
+  expect(STATUS_LABEL.failed).toBe('failed · awaiting fix')
+  expect(STATUS_LABEL.implementing).toBe('implementing')
+  for (const width of [60, 40]) {
+    const rows = layoutGraph(ms, views, width)
+    for (const row of rows) expect(len(row.gutter + row.body)).toBe(width)
+    for (const slug of Object.keys(expected)) {
+      const row = rows.find((r) => r.key === `${slug}:status`)!
+      expect(row.gutter).toBe('')
+      expect(row.body).toBe(`│ ${expected[slug].padEnd(width - 4)} │`)
+    }
+  }
+  // a box narrow enough to cut the label keeps its width and ends the label with …
+  const tight = layoutWithLanes(
+    [m(1, 'r1'), ...[2, 3, 4, 5, 6].map((i) => m(i, `x${i}`, ['r1'])), m(7, 'p', ['x2', 'x3', 'x4', 'x5', 'x6'])],
+    { p: view({ status: 'implemented', attempts: 1 }) },
+    40,
+  ).rows
+  const prow = tight.find((r) => r.key === 'p:status')!
+  expect(len(prow.gutter + prow.body)).toBe(40)
+  expect(prow.body.startsWith('│ ◌ implemented')).toBe(true)
+  if (len(prow.body) - 4 < len(expected.p)) expect(prow.body).toContain('…')
+})
+
+test('stuck box shows the stuck mark', () => {
+  const rows = layoutGraph([m(1, 'k')], { k: view({ status: 'stuck', attempts: 1 }) }, 60)
+  const row = rows.find((r) => r.key === 'k:status')!
+  expect(row.body).toContain('⊘ stuck')
+  expect(row.body).not.toContain('awaiting')
+  expect(STATUS_MARK.stuck).toBe('⊘')
+  expect(len(STATUS_MARK.stuck)).toBe(1)
+  expect(len(row.body)).toBe(60)
+})
+
+test('header running idle done', () => {
+  const counts: Record<Status, number> = {
+    waiting: 3, ready: 0, implementing: 1, implemented: 0, verifying: 1, verified: 0,
+    failed: 0, fixing: 0, passed: 0, merged: 2, stuck: 0,
+  }
+  const title = 'A very long change title that would never fit beside the counts in a narrow pane'
+  const cases: Array<[RunClock, string]> = [
+    [{ phase: 'running', elapsedMs: 125_000 }, '2m05s'],
+    [{ phase: 'idle', elapsedMs: 83_000 }, '1m23s · idle'],
+    [{ phase: 'done', elapsedMs: 300_000 }, '5m00s · done'],
+  ]
+  for (const [clock, tail] of cases) {
+    const header = headerLine(title, counts, clock, 80)
+    expect(len(header)).toBeLessThanOrEqual(80)
+    expect(header).not.toContain('\n')
+    expect(header.endsWith(` — ${tail}`)).toBe(true)
+    expect(header).toContain('2 merged · 1 verifying · 1 implementing · 3 waiting')
+    expect(len(headerLine(title, counts, clock, 40))).toBeLessThanOrEqual(40)
+  }
+  expect(headerLine(title, counts, { phase: 'running', elapsedMs: 125_000 }, 80).endsWith('idle')).toBe(false)
+})
+
+test('band lists hand-offs and idle', () => {
+  const ms = [m(1, 'a'), m(2, 'b', ['a']), m(3, 'c', ['a']), m(4, 'd', ['b', 'c']), m(5, 'e')]
+  const busy = {
+    a: view({ status: 'merged' }),
+    b: view({ status: 'verifying' }),
+    c: view({ status: 'implemented' }),
+    d: view({ status: 'waiting' }),
+    e: view({ status: 'stuck' }),
+  }
+  expect(bandLine(ms.slice(0, 4), busy, 100)).toBe('rpir: 1 merged · M2 verifying · M3 implemented')
+  // stuck and not-started milestones are left out
+  expect(bandLine(ms, busy, 100)).toBe('rpir: 1 merged · M2 verifying · M3 implemented')
+  const quiet = { ...busy, b: view({ status: 'implemented' }) }
+  expect(bandLine(ms.slice(0, 4), quiet, 100)).toBe('rpir: 1 merged · M2 implemented · M3 implemented · idle')
+  const handOffs = {
+    a: view({ status: 'passed' }), b: view({ status: 'failed' }),
+    c: view({ status: 'verified' }), d: view({ status: 'ready' }),
+  }
+  expect(bandLine(ms.slice(0, 4), handOffs, 100)).toBe('rpir: 0 merged · M1 passed · M2 failed · M3 verified · idle')
+  expect(len(bandLine(ms.slice(0, 4), quiet, 20))).toBeLessThanOrEqual(20)
 })

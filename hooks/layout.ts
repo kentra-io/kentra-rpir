@@ -1,4 +1,4 @@
-import type { MilestoneView, PlanMilestone, Row, Status } from '../types'
+import type { MilestoneView, PlanMilestone, Row, RunClock, Status } from '../types'
 
 /** One lane of the gutter: the dependency line of one milestone that has dependents.
  *  `column` is null when the pane was too narrow to draw it. Rows index into the returned rows. */
@@ -31,7 +31,25 @@ const STATUS_ORDER: Status[] = [
   'merged', 'passed', 'failed', 'verified', 'verifying', 'fixing',
   'implemented', 'implementing', 'stuck', 'ready', 'waiting',
 ]
+/** Status-row text after the mark: hand-off statuses name what they wait for. */
+export const STATUS_LABEL: Record<Status, string> = {
+  waiting: 'waiting',
+  ready: 'ready',
+  implementing: 'implementing',
+  implemented: 'implemented · awaiting verify',
+  verifying: 'verifying',
+  verified: 'verified · awaiting verdict',
+  failed: 'failed · awaiting fix',
+  fixing: 'fixing',
+  passed: 'passed · awaiting merge',
+  merged: 'merged',
+  stuck: 'stuck',
+}
+
 const RUNNING: Status[] = ['implementing', 'verifying', 'fixing']
+
+/** Statuses the band lists: a subagent runs, or the milestone waits on the orchestrator. */
+const LISTED: Status[] = ['implementing', 'verifying', 'fixing', 'implemented', 'verified', 'passed', 'failed']
 
 const MIN_WIDTH = 40
 const MIN_BOX = 30
@@ -133,7 +151,7 @@ function boxLine(
     case 'goal':
       return framed(m.goal)
     case 'status':
-      return framed(`${STATUS_MARK[v.status]} ${v.status}${v.attempts > 1 ? ` (attempt ${v.attempts})` : ''}`)
+      return framed(`${STATUS_MARK[v.status]} ${STATUS_LABEL[v.status]}${v.attempts > 1 ? ` (attempt ${v.attempts})` : ''}`)
     case 'times': {
       let t = `impl ${formatDuration(v.implMs)} · verify ${formatDuration(v.verifyMs)}`
       if (v.verifyRounds > 1) t += ` · rounds ${v.verifyRounds}`
@@ -255,33 +273,38 @@ export function layoutGraph(
   return layoutWithLanes(milestones, views, paneWidth).rows
 }
 
-/** Pane header: title, then e.g. "2 merged · 1 verifying · 1 implementing · 3 waiting", then elapsed.
- *  One line, cut to width; the title is cut first so the counts and elapsed time stay. */
+/** Pane header: title, then e.g. "2 merged · 1 verifying · 1 implementing · 3 waiting", then elapsed,
+ *  with `· idle` or `· done` once nothing runs. One line, cut to width; the title is cut first. */
 export function headerLine(
   title: string,
   counts: Record<Status, number>,
-  elapsedMs: number,
+  clock: RunClock,
   w: number,
 ): string {
   const tally = STATUS_ORDER.filter((s) => (counts[s] ?? 0) > 0)
     .map((s) => `${counts[s]} ${s}`)
     .join(' · ')
-  const rest = [tally, formatDuration(elapsedMs)].filter((p) => p !== '').join(' — ')
+  const time = clock.phase === 'running'
+    ? formatDuration(clock.elapsedMs)
+    : `${formatDuration(clock.elapsedMs)} · ${clock.phase}`
+  const rest = [tally, time].filter((p) => p !== '').join(' — ')
   const titleRoom = Math.max(8, w - width(rest) - 3)
   return cut(`${cut(title, titleRoom)} — ${rest}`, w)
 }
 
-/** Band text, e.g. "rpir: 2 merged · M3 verifying · M4 implementing" — merged count, then each
- *  running milestone as "M<n> <status>"; cut to width. */
+/** Band text, e.g. "rpir: 1 merged · M2 verifying · M3 implemented" — merged count, then each
+ *  running or hand-off milestone as "M<n> <status>", then "idle" when none runs; cut to width. */
 export function bandLine(
   milestones: PlanMilestone[],
   views: Record<string, MilestoneView>,
   w: number,
 ): string {
   const ordered = orderForDrawing(milestones)
-  const merged = ordered.filter((m) => views[m.slug]?.status === 'merged').length
-  const running = ordered
-    .filter((m) => views[m.slug] !== undefined && RUNNING.includes(views[m.slug].status))
-    .map((m) => `M${m.number} ${views[m.slug].status}`)
-  return cut([`rpir: ${merged} merged`, ...running].join(' · '), w)
+  const statusOf = (m: PlanMilestone): Status | null => views[m.slug]?.status ?? null
+  const merged = ordered.filter((m) => statusOf(m) === 'merged').length
+  const listed = ordered
+    .filter((m) => { const s = statusOf(m); return s !== null && LISTED.includes(s) })
+    .map((m) => `M${m.number} ${statusOf(m)}`)
+  const isIdle = !ordered.some((m) => { const s = statusOf(m); return s !== null && RUNNING.includes(s) })
+  return cut([`rpir: ${merged} merged`, ...listed, ...(isIdle ? ['idle'] : [])].join(' · '), w)
 }

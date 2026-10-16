@@ -2,7 +2,8 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
-import type { RunState } from '../../types'
+import type { RunState, Status } from '../../types'
+import { styleOf } from '../register'
 
 const PLUGIN = 'kentra-rpir'
 const PANE = 'rpir-graph'
@@ -267,4 +268,35 @@ test('background dispatch ends on the subagent turn, not the launch notice', asy
   const agent = runOf(kit)!.agents[agentId]!
   expect(agent.endedAt).not.toBeNull()
   expect(agent.outcome).toBe('DONE')
+})
+
+test('styleOf colours', () => {
+  const BLUE = { color: '#5FAFFF' }
+  const expected: Record<Status, { color?: string; dimColor?: boolean }> = {
+    implementing: BLUE, verifying: BLUE, fixing: BLUE, implemented: BLUE, verified: BLUE,
+    passed: { color: 'success' }, merged: { color: 'success' },
+    waiting: { dimColor: true }, ready: {},
+    failed: { color: 'warning' }, stuck: { color: 'error' },
+  }
+  expect(Object.keys(expected)).toHaveLength(11)
+  for (const [status, style] of Object.entries(expected)) {
+    expect(styleOf(status as Status)).toEqual(style)
+  }
+  expect(styleOf(null)).toEqual({})
+})
+
+test('pane header says idle', async ($, on) => {
+  const kit = setup(on, filesWithPlan(3))
+  const agentId = await spawn($, implPrompt(1, 'a'), 'tu-1')
+  await kit.clock.advance(5000)
+  await finish($, agentId, 'Implemented.\n\nSTATUS: DONE')
+  await kit.clock.advance(10_000) // later redraws must not count on
+  expect(runOf(kit)!.agents[agentId]!.endedAt).not.toBeNull()
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PANE_PROPS, requestId: PANE } as never)
+    expect(await ui.find({ type: 'Text', text: /— 5s · idle$/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /◌ implemented · awaiting verify/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /1 implemented/ })).toBeDefined()
+    await ui.unmount()
+  }
 })

@@ -16,16 +16,20 @@ export const STATUS_MARK: Record<Status, string> = {
   waiting: '·',
   ready: '○',
   implementing: '●',
+  implemented: '◌',
   verifying: '◐',
+  verified: '◌',
+  failed: '✗',
   fixing: '↻',
   passed: '◑',
   merged: '✓',
-  stuck: '✗',
+  stuck: '⊘',
 }
 
 /** Order the header counts are listed in: furthest along first. */
 const STATUS_ORDER: Status[] = [
-  'merged', 'passed', 'verifying', 'fixing', 'implementing', 'stuck', 'ready', 'waiting',
+  'merged', 'passed', 'failed', 'verified', 'verifying', 'fixing',
+  'implemented', 'implementing', 'stuck', 'ready', 'waiting',
 ]
 const RUNNING: Status[] = ['implementing', 'verifying', 'fixing']
 

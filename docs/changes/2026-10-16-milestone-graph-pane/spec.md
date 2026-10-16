@@ -75,8 +75,10 @@ doing right now.
 1. The plugin ships the mod as `hooks/hooks.json` (`{ "modules": [...] }`) and a
    hooks module beside it. Installing or updating kentra-rpir is the only step
    needed to get the pane.
-2. `claude plugin validate` passes on the plugin, and the module type-checks
-   against the Claude Code 2.1.301 types.
+2. `claude plugin validate` passes on the plugin. The repo carries a
+   `tsconfig.json` so the module can be type-checked against the Claude Code
+   types by hand; type-checking is not part of the standard check, since
+   TypeScript is not a repo dependency.
 3. The plugin version is bumped, and the README documents the pane, the
    `/rpir-graph` command, the minimum Claude Code version for the pane
    (2.1.287) and the optional keybinding.
@@ -272,8 +274,9 @@ merged): `passed` and `stuck` name the states that list had no word for, and
 engine keybinding action through a Button in an always-mounted band, shown only
 while a run is tracked, and the user binds a chord to that action. The band
 earns its place on its own: it shows the run's summary in terminals too narrow
-for the docked pane (see "Run summary band"). Which action is borrowed is settled in the plan's first
-milestone by a spike (P7). The user agreed that if no action can be borrowed,
+for the docked pane (see "Run summary band"). Which action is borrowed is settled while the band is
+built: candidate actions are tried in order, the first that `claude plugin
+validate` accepts ships, and the live run confirms the chord works (P7). The user agreed that if no action can be borrowed,
 the pane ships with `/rpir-graph` alone and the hotkey becomes a follow-up.
 Options not taken: a Button `hotkey` (works only while the pane already has
 focus), or asking the user to type the command.

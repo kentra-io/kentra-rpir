@@ -1,7 +1,7 @@
 # Implementation report — Milestone graph pane for implement runs
 
 - **Change:** docs/changes/2026-10-16-milestone-graph-pane
-- **Branch:** rpir/milestone-graph-pane · **Pull request:** see the PR opened from this branch
+- **Branch:** rpir/milestone-graph-pane · **Pull request:** https://github.com/kentra-io/kentra-rpir/pull/23
 - **Orchestrator session:** 1c0e2a0d-047c-4210-8977-644f3526facf · **Models:** implementer sonnet, verifier opus, orchestrator opus
 - **Plugin:** kentra-rpir 0.5.0 · **Claude Code:** 2.1.301
 

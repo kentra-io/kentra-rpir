@@ -36,8 +36,8 @@ Make a task for each item and complete them in order.
   answers.
   - Where should change folders live? (default `docs/changes`)
   - Which issue tracker: none, GitHub or Jira?
-  - Should the stages read `constitution/constitution.md`? Recommend yes when
-    that file exists.
+  - Should the spec, plan and self-review stages read
+    `constitution/constitution.md`? Recommend yes when that file exists.
   - Which process tier should changes default to? `full` for code that
     ships (complete research and plans); `light` for a proof of concept, a
     demo or a sandbox (research only what could change the plan's shape).

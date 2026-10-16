@@ -49,7 +49,7 @@ exact syntax of a call the library plainly supports.
 
 ## Checklist
 
-1. Read the spec, the constitution and the code
+1. Read the spec, the constitution (when enabled) and the code
 2. Research the plan's shape
 3. Write the skeleton
 4. Skeleton review

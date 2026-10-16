@@ -1,7 +1,7 @@
 # kentra-rpir project configuration. Missing keys take these defaults.
 changesDir: docs/changes            # where change folders live
 tracker: none                       # none | github | jira
-constitution: false                 # true: read constitution/constitution.md in every stage
+constitution: false                 # true: the spec, plan and self-review stages read constitution/constitution.md
 tier: full                          # full | light — the default process tier; each spec records its own
 spec:
   questionBatch: 5                  # max questions asked in one message

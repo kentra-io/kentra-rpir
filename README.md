@@ -45,7 +45,7 @@ brew install kentra-io/tap/milestoned-plan-dag
 Needs `milestoned-plan-dag` 0.3.0 or later and `jq` 1.6 or later.
 
 Optional: [`adr-sourced-constitution`](https://github.com/kentra-io/adr-sourced-constitution)
-for a project constitution that every stage reads.
+for a project constitution that the spec, plan and self-review stages read.
 
 ## Configure
 

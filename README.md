@@ -104,9 +104,9 @@ toggles the pane from the prompt while a run is tracked:
 ```
 
 If the file already exists, add the block to its `bindings` array.
-`ctrl+x g` is a suggestion; any free chord works. Where the engine
-handles `app:toggleDiffPreSession` itself, the same chord also does what that
-action normally does.
+`ctrl+x g` is a suggestion; any free chord works. While the diff panel is
+open, the engine handles `app:toggleDiffPreSession` itself, and the chord does
+that instead of toggling the pane.
 
 **Requirements and limits.** The pane needs Claude Code 2.1.287 or
 later. On older versions the rest of the plugin should work as

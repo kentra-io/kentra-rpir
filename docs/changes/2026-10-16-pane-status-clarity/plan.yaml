@@ -1,0 +1,1662 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kentra-io/milestoned-plan-dag/v0.3.0/schema/plan.schema.json
+schemaVersion: 0.3.0
+description: |
+  Second iteration of the kentra-rpir **mod** (the milestone graph pane, first
+  built by change `docs/changes/2026-10-16-milestone-graph-pane`). It makes
+  every box say whether its milestone's subagent is **running** or which
+  orchestrator step it **waits for**, makes the header and band say when
+  nothing runs, recolours the statuses, and adds a committed demo that runs
+  the real `/kentra-rpir:implement` on a tiny throwaway plan.
+
+  **What a mod is.** A Claude Code plugin whose `hooks/hooks.json` names a
+  hooks module (`hooks/register.tsx`). The module exports
+  `register: Register = (on, options) => { ... }` (types from `'claude-code'`).
+  Every hook is `($, e, next)`. The module runs with no Node and no DOM; JSX
+  compiles against the global `h`; elements come from
+  `const { Box, Text, Button } = $.ui.resolve(e)`. For API shapes load the
+  `plugin-authoring` skill and grep the types file it names; do not guess.
+
+  **The mod's files.**
+  - `types/index.d.ts` — shared types (`Status`, `AgentRun`, `RunState`,
+    `MilestoneView`, `Row`, …) and the `$.state` contract;
+  - `hooks/tracker.ts` — pure: `reduce(state, event)`, `viewOf(state, slug, now)`
+    (a `MilestoneView` whose `status` comes from the private `statusOf`),
+    `countByStatus(state, now)`;
+  - `hooks/layout.ts` — pure: `STATUS_MARK`, `layoutGraph`, `headerLine`,
+    `bandLine`, `formatDuration`, `cut`;
+  - `hooks/nav.ts` — pure helpers the wiring uses (`milestonesOf`, `viewsOf`, …);
+  - `hooks/register.tsx` — wiring only: events → tracker, state → layout →
+    tree; `styleOf(status)` picks each row's colour;
+  - `hooks/test/*.test.ts(x)` — tests run by `claude plugin test`, importing
+    `test`, `expect`, `mock` from `'claude-code/testing'`.
+
+  **How an agent's time works today.** An `AgentRun` has `startedAt` and
+  `endedAt` (null while it runs). A box's `impl`/`verify` times sum
+  `(endedAt ?? now) - startedAt` over the milestone's agents, so a finished
+  agent's time already stops. The defect this change fixes is the *status*:
+  a finished implementer still reads `implementing`, a verifier with no
+  verdict read still reads `verifying`, and a verifier FAIL reads `stuck`.
+
+  **Standard check.** `sh tests/run.sh` from the repo root: the script
+  tests, the workflow checks, and (when `claude` is on PATH)
+  `claude plugin validate .` plus `claude plugin test` on a staged copy of
+  `.claude-plugin/plugin.json`, `hooks/` and `types/`. Every milestone keeps
+  it green.
+
+  **Versioning.** Every change to the plugin bumps `version` in
+  `.claude-plugin/plugin.json`; M1 sets `0.5.1` and later milestones leave it.
+milestones:
+  - number: 1
+    slug: statuses
+    goal: "The tracker tells a running milestone from one waiting on the orchestrator"
+    description: |
+      Spec requirements 1–8 and 10, plus the run-level clock that requirement 11
+      needs. The status set grows by three hand-off statuses, `implemented`,
+      `verified` and `failed`, and `stuck` narrows to an implementer's
+      `BLOCKED`/`NEEDS_CONTEXT`. The rules in `statusOf`
+      (`hooks/tracker.ts`), in order of precedence:
+
+      1. merged (`mergedAt !== null`) → `merged`;
+      2. a running agent (`endedAt === null`, newest first): verifier →
+         `verifying`; implementer → `fixing` if an earlier verifier of the
+         milestone said FAIL, else `implementing`;
+      3. otherwise the newest agent decides: implementer with `DONE`,
+         `DONE_WITH_CONCERNS` or no outcome → `implemented`; implementer with
+         `BLOCKED`/`NEEDS_CONTEXT` → `stuck`; verifier `PASS` → `passed`;
+         verifier `FAIL` → `failed`; verifier with no outcome → `verified`;
+      4. no agent → `ready` when every dependency is merged, else `waiting`.
+
+      Only two branches of today's `statusOf` change (step 3 above): the
+      verifier `FAIL` branch returns `failed` instead of `stuck`, the
+      verifier-without-verdict branch returns `verified` instead of
+      `verifying`, and the implementer fall-through returns `implemented`
+      instead of `implementing`. Rules 1, 2 and 4 are today's code, unchanged.
+      An implementer whose turn ended (`agentDone` with `resultText: null`)
+      and that has not been reopened by a `tool`/`resume` event has
+      `endedAt !== null` and `outcome === null`, so it reads `implemented`
+      until it wakes again — the same thing the pane cannot tell apart from
+      a finished agent; this is the accepted limit from the first change.
+
+      The times need no change (an ended agent's span already stops at
+      `endedAt`); a test pins it for the hand-off statuses (requirement 10).
+
+      **Run clock.** New pure export in `hooks/tracker.ts`:
+      `runClock(state: RunState, now: number): RunClock`, with the new type in
+      `types/index.d.ts`:
+      `export type RunClock = { phase: 'running' | 'idle' | 'done'; elapsedMs: number }`.
+      - `running` when any agent has `endedAt === null`; `elapsedMs = now - startedAt`.
+      - otherwise `done` when `state.plan` is non-null, has at least one
+        milestone, and every plan milestone is merged; else `idle`. In both,
+        `elapsedMs = max(endedAt over all agents) - startedAt` (0 when there
+        are no agents).
+      `startedAt` is `state.startedAt`: the wiring creates the run with
+      `emptyRun(at)` at the first milestone dispatch (`hooks/register.tsx`
+      line ~158), so it is the first dispatch's time, which is what spec
+      requirement 11 measures from. Clamp `elapsedMs` at 0 (`Math.max(0, …)`)
+      like `span` does. "Merged" for a plan milestone means
+      `state.milestones[slug]?.mergedAt` is non-null; a plan milestone never
+      dispatched is not merged. When `state.plan` is null the phase is never
+      `done`. M2 draws it in the header and band; this milestone does not
+      call it from `register.tsx`.
+
+      **Marks.** `STATUS_MARK` in `hooks/layout.ts` is a
+      `Record<Status, string>`, so this milestone adds the three new keys
+      there (implemented `◌`, verified `◌`, failed `✗`) and changes stuck to
+      `⊘` (requirement 14), and adds the new statuses to `STATUS_ORDER` (header
+      count order, furthest along first: merged, passed, failed, verified,
+      verifying, fixing, implemented, implementing, stuck, ready, waiting).
+      Nothing else in `layout.ts` changes here — M2 owns the labels, header
+      and band — but existing layout tests that build a `Record<Status, number>`
+      gain the three new keys so they still type-check and pass.
+      `RUNNING` in `layout.ts` stays `['implementing', 'verifying', 'fixing']`
+      (M2 rewrites `bandLine`).
+
+      **Files outside this milestone that read `Status`.** `styleOf` in
+      `hooks/register.tsx` is a `switch` with a `default: return {}` branch,
+      so the new statuses compile and draw with no colour until M2 recolours
+      them; do not edit `register.tsx` here. No wiring, nav, plan or
+      scaffold test asserts a status that changes (checked: the wiring
+      tests assert `/1 implementing/` only while the implementer runs, and
+      `/✓ merged/` after a merge), so they stay green untouched.
+
+      Bump `.claude-plugin/plugin.json` `version` to `0.5.1`.
+    deliverables: |
+      - `types/index.d.ts` — `Status` becomes
+        `'waiting' | 'ready' | 'implementing' | 'implemented' | 'verifying' | 'verified' | 'failed' | 'fixing' | 'passed' | 'merged' | 'stuck'`;
+        new `export type RunClock = { phase: 'running' | 'idle' | 'done'; elapsedMs: number }`.
+      - `hooks/tracker.ts` — `STATUSES` lists all eleven; `statusOf` follows the
+        rules above; new `export function runClock(state: RunState, now: number): RunClock`.
+      - `hooks/layout.ts` — `STATUS_MARK` and `STATUS_ORDER` cover the eleven
+        statuses (marks above); no other change.
+      - `hooks/test/tracker.test.ts` — updated and new tests (criteria).
+      - `hooks/test/layout.test.ts` — only the `counts` record gains the new keys.
+      - `.claude-plugin/plugin.json` — `version` `0.5.1`.
+    contract:
+      check: sh tests/run.sh
+      criteria:
+        - name: "hooks/test/tracker.test.ts::implementer done waits for verify"
+          given: "a milestone whose only agent is an implementer that ended with `STATUS: DONE` (and, separately, one that ended with no outcome line)"
+          when: "viewOf runs at a later `now`"
+          then: "status is `implemented`, and implMs equals endedAt − startedAt, unchanged as `now` advances"
+        - name: "hooks/test/tracker.test.ts::verifier without verdict is verified"
+          given: "a milestone whose newest agent is a verifier that ended with no outcome"
+          when: "viewOf runs"
+          then: "status is `verified` and verifyMs stops at its end"
+        - name: "hooks/test/tracker.test.ts::fail then fix then pass then merge"
+          given: "impl DONE, verifier FAIL, a second implementer, a verifier PASS, then the merge line"
+          when: "viewOf runs after each step"
+          then: "statuses read implementing, implemented, verifying, failed, fixing, implemented, verifying, passed, merged"
+        - name: "hooks/test/tracker.test.ts::blocked milestone is stuck"
+          given: "an implementer that ended with `STATUS: BLOCKED` (and one with `NEEDS_CONTEXT`)"
+          when: "viewOf runs"
+          then: "status is `stuck`; a verifier FAIL is never `stuck`"
+        - name: "hooks/test/tracker.test.ts::runClock phases"
+          given: "runs with one agent running; with every agent ended and an unmerged plan milestone; with every plan milestone merged"
+          when: "runClock runs at `now`"
+          then: "phase is running with elapsed now − startedAt; idle, then done, each with elapsed = last agent end − startedAt and unchanged as `now` advances"
+        - name: "hooks/test/tracker.test.ts::countByStatus counts the new statuses"
+          given: "a plan with milestones in implemented, verified, failed and passed"
+          when: "countByStatus runs"
+          then: "it returns all eleven keys with those counts"
+      paths:
+        - types/index.d.ts
+        - hooks/tracker.ts
+        - hooks/layout.ts
+        - hooks/test/tracker.test.ts
+        - hooks/test/layout.test.ts
+        - .claude-plugin/plugin.json
+    steps:
+      - text: |
+          [ ] Bump the manifest. In `.claude-plugin/plugin.json` change
+          `"version": "0.5.0"` to `"version": "0.5.1"`; leave every other
+          field as it is. Run `jq -r .version .claude-plugin/plugin.json`;
+          expected output: `0.5.1`.
+        files: [.claude-plugin/plugin.json]
+      - text: |
+          [ ] In `types/index.d.ts` replace the `Status` type
+
+          ```ts
+          export type Status =
+            | 'waiting' | 'ready' | 'implementing' | 'verifying'
+            | 'fixing' | 'passed' | 'merged' | 'stuck'
+          ```
+
+          with
+
+          ```ts
+          export type Status =
+            | 'waiting' | 'ready' | 'implementing' | 'implemented' | 'verifying' | 'verified'
+            | 'failed' | 'fixing' | 'passed' | 'merged' | 'stuck'
+          ```
+
+          and add, directly after the `MilestoneView` type (before the
+          `Row` type's doc comment):
+
+          ```ts
+          /** The run's clock for the pane header and band: `running` while any
+           *  agent runs (elapsed counts to now); otherwise `done` when every plan
+           *  milestone is merged, else `idle` (elapsed stops at the last agent's end). */
+          export type RunClock = { phase: 'running' | 'idle' | 'done'; elapsedMs: number }
+          ```
+
+          Nothing else in the file changes.
+        files: [types/index.d.ts]
+      - text: |
+          [ ] In `hooks/layout.ts` replace `STATUS_MARK` and `STATUS_ORDER`
+          (lines 15–29) with:
+
+          ```ts
+          export const STATUS_MARK: Record<Status, string> = {
+            waiting: '·',
+            ready: '○',
+            implementing: '●',
+            implemented: '◌',
+            verifying: '◐',
+            verified: '◌',
+            failed: '✗',
+            fixing: '↻',
+            passed: '◑',
+            merged: '✓',
+            stuck: '⊘',
+          }
+
+          /** Order the header counts are listed in: furthest along first. */
+          const STATUS_ORDER: Status[] = [
+            'merged', 'passed', 'failed', 'verified', 'verifying', 'fixing',
+            'implemented', 'implementing', 'stuck', 'ready', 'waiting',
+          ]
+          ```
+
+          Leave `RUNNING` and the rest of the file unchanged. `◌`, `✗` and
+          `⊘` drawing one cell wide is spec premise P2 (unverified); the
+          layout's width maths already treats every mark as one cell, and
+          the human criterion in M2 checks it.
+        files: [hooks/layout.ts]
+      - text: |
+          [ ] In `hooks/test/layout.test.ts` (the `counts` record near line 159)
+          replace
+
+          ```ts
+            const counts: Record<Status, number> = {
+              waiting: 3, ready: 0, implementing: 1, verifying: 1, fixing: 0, passed: 0, merged: 2, stuck: 0,
+            }
+          ```
+
+          with
+
+          ```ts
+            const counts: Record<Status, number> = {
+              waiting: 3, ready: 0, implementing: 1, implemented: 0, verifying: 1, verified: 0,
+              failed: 0, fixing: 0, passed: 0, merged: 2, stuck: 0,
+            }
+          ```
+
+          The header assertions below it stay as they are: zero counts are
+          left out of the tally, so the header string does not change.
+        files: [hooks/test/layout.test.ts]
+      - text: |
+          [ ] In `hooks/tracker.ts`:
+
+          1. Add `RunClock` to the type import at the top:
+
+          ```ts
+          import type {
+            AgentRun, MilestoneRun, MilestoneView, Outcome, Role, RunClock, RunState, Status, TrackerEvent,
+          } from '../types'
+          ```
+
+          2. Replace `STATUSES` with:
+
+          ```ts
+          const STATUSES: readonly Status[] = [
+            'waiting', 'ready', 'implementing', 'implemented', 'verifying', 'verified',
+            'failed', 'fixing', 'passed', 'merged', 'stuck',
+          ]
+          ```
+
+          3. In `statusOf`, replace the block that starts
+          `const last = agents[agents.length - 1]` and ends with the
+          `return 'implementing'` that closes `if (last !== undefined) { … }`
+          with:
+
+          ```ts
+            const last = agents[agents.length - 1]
+            if (last !== undefined) {
+              // Nothing of this milestone runs: it waits on the orchestrator.
+              if (last.role === 'verify') {
+                if (last.outcome === 'PASS') return 'passed'   // awaiting merge
+                if (last.outcome === 'FAIL') return 'failed'   // awaiting a fix dispatch
+                return 'verified'                              // awaiting the verdict read
+              }
+              if (last.outcome === 'BLOCKED' || last.outcome === 'NEEDS_CONTEXT') return 'stuck'
+              return 'implemented'                             // DONE, DONE_WITH_CONCERNS or none: awaiting verify
+            }
+          ```
+
+          The merged check, the running-agent block and the ready/waiting
+          tail stay as they are.
+
+          4. Append after `countByStatus`:
+
+          ```ts
+          /** The run's clock at `now`: `running` (elapsed to now) while any agent runs;
+           *  otherwise `done` when the plan has milestones and every one is merged, else
+           *  `idle` — both with elapsed from the run's start to the last agent's end. */
+          export function runClock(state: RunState, now: number): RunClock {
+            const agents = Object.values(state.agents)
+            if (agents.some((a) => a.endedAt === null)) {
+              return { phase: 'running', elapsedMs: Math.max(0, now - state.startedAt) }
+            }
+            const lastEnd = agents.reduce((t, a) => Math.max(t, a.endedAt ?? 0), -Infinity)
+            const elapsedMs = agents.length === 0 ? 0 : Math.max(0, lastEnd - state.startedAt)
+            const pms = state.plan?.milestones ?? []
+            const allMerged = pms.length > 0 &&
+              pms.every((m) => (state.milestones[m.slug]?.mergedAt ?? null) !== null)
+            return { phase: allMerged ? 'done' : 'idle', elapsedMs }
+          }
+          ```
+        files: [hooks/tracker.ts]
+      - text: |
+          [ ] Update the existing tests in `hooks/test/tracker.test.ts`.
+
+          1. Add `runClock` to the import from `'../tracker'`:
+
+          ```ts
+          import {
+            countByStatus, emptyRun, parseDispatch, parseMerge, parseOutcome, reduce, runClock, viewOf,
+          } from '../tracker'
+          ```
+
+          2. In `parallel milestones time independently` replace the
+          `countByStatus` expectation with:
+
+          ```ts
+            expect(countByStatus(s, 20_000)).toEqual({
+              waiting: 1, ready: 0, implementing: 2, implemented: 0, verifying: 0, verified: 0,
+              failed: 0, fixing: 0, passed: 0, merged: 1, stuck: 0,
+            })
+          ```
+
+          3. In `no plan still tracks dispatches` replace the `countByStatus`
+          expectation with:
+
+          ```ts
+            expect(countByStatus(s, 1000)).toEqual({
+              waiting: 0, ready: 0, implementing: 2, implemented: 0, verifying: 0, verified: 0,
+              failed: 0, fixing: 0, passed: 0, merged: 0, stuck: 0,
+            })
+          ```
+
+          4. Replace the whole `fail then fix then pass then merge` test
+          with the version below. It keeps every step of the old test; a
+          turn's end with no outcome already reads `implemented`, so the
+          per-step list repeats statuses, and the test also checks the list
+          with consecutive repeats removed against the criterion's nine.
+
+          ```ts
+          test('fail then fix then pass then merge', () => {
+            let s = withPlan(planOf([[1, 'store', []]]))
+            const steps: Array<[TrackerEvent, Status]> = [
+              [spawn('i1', implPrompt(1, 'store'), 1000), 'implementing'],
+              [{ kind: 'tool', agentId: 'i1', summary: 'Bash: sh tests/run.sh', at: 2000 }, 'implementing'],
+              [turnDone('i1', 4000), 'implemented'],
+              [done('i1', 'STATUS: DONE', 4100), 'implemented'],
+              [spawn('v1', verifyPrompt(1, 'store'), 5000), 'verifying'],
+              [done('v1', 'VERDICT: FAIL\nFINDINGS: x', 7000), 'failed'],
+              [spawn('i2', implPrompt(1, 'store'), 8000), 'fixing'],
+              [done('i2', 'STATUS: DONE', 10_000), 'implemented'],
+              [spawn('v2', verifyPrompt(1, 'store'), 11_000), 'verifying'],
+              [done('v2', 'VERDICT: PASS', 12_000), 'passed'],
+              [bash(mergeCmd(1, 'store'), 13_000), 'merged'],
+            ]
+            const seen: Status[] = []
+            for (const [ev, want] of steps) {
+              s = reduce(deepFreeze(s), ev)
+              const at = ev.kind === 'plan' ? 0 : ev.at
+              const got = viewOf(s, 'store', at).status
+              expect(got, `after ${ev.kind} at ${at}`).toBe(want)
+              if (seen[seen.length - 1] !== got) seen.push(got)
+            }
+            expect(seen).toEqual([
+              'implementing', 'implemented', 'verifying', 'failed', 'fixing',
+              'implemented', 'verifying', 'passed', 'merged',
+            ])
+            const v = viewOf(s, 'store', 99_000)
+            expect(v.attempts).toBe(2)
+            expect(v.verifyRounds).toBe(2)
+            expect(v.implMs).toBe((4100 - 1000) + (10_000 - 8000)) // the last end wins
+            expect(v.verifyMs).toBe((7000 - 5000) + (12_000 - 11_000))
+            expect(v.wallMs).toBe(13_000 - 1000)
+            expect(v.runningAgentId).toBeNull()
+            expect(v.currentTool).toBeNull()
+            expect(v.lastAgentId).toBe('v2')
+            // A second merge line does not move mergedAt.
+            expect(viewOf(reduce(s, bash(mergeCmd(1, 'store'), 50_000)), 'store', 99_000).wallMs).toBe(12_000)
+          })
+          ```
+
+          5. Replace the whole `blocked milestone is stuck` test with:
+
+          ```ts
+          test('blocked milestone is stuck', () => {
+            let s = withPlan(planOf([[1, 'store', []], [2, 'other', []], [3, 'checked', []]]))
+            s = apply(s, [
+              spawn('i1', implPrompt(1, 'store'), 0),
+              { kind: 'tool', agentId: 'i1', summary: 'Bash: docker ps', at: 500 },
+            ])
+            expect(viewOf(s, 'store', 600).currentTool).toBe('Bash: docker ps')
+            s = apply(s, [done('i1', 'STATUS: BLOCKED\nBLOCKER: no docker', 1000)])
+            const v = viewOf(s, 'store', 5000)
+            expect(v.status).toBe('stuck')
+            expect(v.runningAgentId).toBeNull()
+            expect(v.currentTool).toBeNull()
+            expect(v.lastAgentId).toBe('i1')
+            expect(v.implMs).toBe(1000)
+
+            s = apply(s, [
+              spawn('i2', implPrompt(2, 'other'), 2000),
+              done('i2', 'STATUS: NEEDS_CONTEXT\nQUESTION: which schema?', 3000),
+            ])
+            expect(viewOf(s, 'other', 5000).status).toBe('stuck')
+
+            // A verifier FAIL is routine: failed, never stuck.
+            s = apply(s, [
+              spawn('i3', implPrompt(3, 'checked'), 2000),
+              done('i3', 'STATUS: DONE', 3000),
+              spawn('v3', verifyPrompt(3, 'checked'), 3000),
+              done('v3', 'VERDICT: FAIL\nFINDINGS: x', 4000),
+            ])
+            expect(viewOf(s, 'checked', 5000).status).toBe('failed')
+            expect(viewOf(s, 'checked', 5000).status).not.toBe('stuck')
+          })
+          ```
+
+          The `ready and NEEDS_CONTEXT` test stays as it is (its
+          NEEDS_CONTEXT milestone still reads `stuck`).
+        files: [hooks/test/tracker.test.ts]
+      - text: |
+          [ ] Append the new tests to the end of `hooks/test/tracker.test.ts`:
+
+          ```ts
+          test('implementer done waits for verify', () => {
+            const plan = planOf([[1, 'a', []], [2, 'b', []], [3, 'c', []], [4, 'd', []]])
+            const s = apply(withPlan(plan), [
+              spawn('ia', implPrompt(1, 'a'), 1000),
+              done('ia', 'Implemented.\n\nSTATUS: DONE', 6000),
+              spawn('ib', implPrompt(2, 'b'), 1000),
+              done('ib', 'I wrote the file and stopped.', 4000), // no outcome line
+              spawn('ic', implPrompt(3, 'c'), 1000),
+              turnDone('ic', 3000),                              // a turn's end, no result text
+              spawn('id', implPrompt(4, 'd'), 1000),
+              done('id', 'STATUS: DONE_WITH_CONCERNS\nCONCERNS: slow test', 2000),
+            ])
+            for (const now of [10_000, 60_000, 600_000]) {
+              const a = viewOf(s, 'a', now)
+              expect(a.status).toBe('implemented')
+              expect(a.implMs).toBe(6000 - 1000)
+              expect(a.runningAgentId).toBeNull()
+              const b = viewOf(s, 'b', now)
+              expect(b.status).toBe('implemented')
+              expect(b.implMs).toBe(4000 - 1000)
+              expect(viewOf(s, 'c', now).status).toBe('implemented')
+              expect(viewOf(s, 'c', now).implMs).toBe(3000 - 1000)
+              expect(viewOf(s, 'd', now).status).toBe('implemented')
+            }
+          })
+
+          test('verifier without verdict is verified', () => {
+            const s = apply(withPlan(planOf([[1, 'a', []]])), [
+              spawn('i1', implPrompt(1, 'a'), 1000),
+              done('i1', 'STATUS: DONE', 4000),
+              spawn('v1', verifyPrompt(1, 'a'), 5000),
+              done('v1', 'I ran the check; it looked fine.', 8000), // no VERDICT line
+            ])
+            for (const now of [9000, 90_000]) {
+              const v = viewOf(s, 'a', now)
+              expect(v.status).toBe('verified')
+              expect(v.verifyMs).toBe(8000 - 5000)
+              expect(v.implMs).toBe(4000 - 1000)
+              expect(v.runningAgentId).toBeNull()
+            }
+          })
+
+          test('runClock phases', () => {
+            const plan = planOf([[1, 'm1', []], [2, 'm2', ['m1']]])
+            const base = reduce(emptyRun(1000), { kind: 'plan', plan, error: null })
+            expect(runClock(base, 5000)).toEqual({ phase: 'idle', elapsedMs: 0 }) // no agents yet
+
+            let s = apply(base, [spawn('i1', implPrompt(1, 'm1'), 1000)])
+            expect(runClock(s, 5000)).toEqual({ phase: 'running', elapsedMs: 4000 })
+            expect(runClock(s, 9000)).toEqual({ phase: 'running', elapsedMs: 8000 })
+
+            s = apply(s, [
+              done('i1', 'STATUS: DONE', 3000),
+              spawn('v1', verifyPrompt(1, 'm1'), 3500),
+              done('v1', 'VERDICT: PASS', 4000),
+              bash(mergeCmd(1, 'm1'), 4500),
+            ])
+            // every agent ended, m2 not merged
+            expect(runClock(s, 10_000)).toEqual({ phase: 'idle', elapsedMs: 3000 })
+            expect(runClock(s, 99_000)).toEqual({ phase: 'idle', elapsedMs: 3000 })
+
+            s = apply(s, [
+              spawn('i2', implPrompt(2, 'm2'), 5000),
+              done('i2', 'STATUS: DONE', 7000),
+              spawn('v2', verifyPrompt(2, 'm2'), 7000),
+              done('v2', 'VERDICT: PASS', 9000),
+              bash(mergeCmd(2, 'm2'), 9500),
+            ])
+            expect(runClock(s, 20_000)).toEqual({ phase: 'done', elapsedMs: 8000 })
+            expect(runClock(s, 200_000)).toEqual({ phase: 'done', elapsedMs: 8000 })
+
+            // no plan: never done
+            const noPlan = apply(reduce(emptyRun(0), { kind: 'plan', plan: null, error: 'x' }), [
+              spawn('j1', implPrompt(1, 'a'), 0),
+              done('j1', 'STATUS: DONE', 500),
+            ])
+            expect(runClock(noPlan, 1000)).toEqual({ phase: 'idle', elapsedMs: 500 })
+          })
+
+          test('countByStatus counts the new statuses', () => {
+            const plan = planOf([[1, 'a', []], [2, 'b', []], [3, 'c', []], [4, 'd', []], [5, 'e', ['a']]])
+            const s = apply(withPlan(plan), [
+              spawn('ia', implPrompt(1, 'a'), 0),
+              done('ia', 'STATUS: DONE', 100),                      // a: implemented
+              spawn('ib', implPrompt(2, 'b'), 0),
+              done('ib', 'STATUS: DONE', 100),
+              spawn('vb', verifyPrompt(2, 'b'), 200),
+              done('vb', 'no verdict here', 300),                   // b: verified
+              spawn('ic', implPrompt(3, 'c'), 0),
+              done('ic', 'STATUS: DONE', 100),
+              spawn('vc', verifyPrompt(3, 'c'), 200),
+              done('vc', 'VERDICT: FAIL\nFINDINGS: x', 300),        // c: failed
+              spawn('id', implPrompt(4, 'd'), 0),
+              done('id', 'STATUS: DONE', 100),
+              spawn('vd', verifyPrompt(4, 'd'), 200),
+              done('vd', 'VERDICT: PASS', 300),                     // d: passed
+            ])                                                      // e: waiting on a
+            expect(countByStatus(s, 1000)).toEqual({
+              waiting: 1, ready: 0, implementing: 0, implemented: 1, verifying: 0, verified: 1,
+              failed: 1, fixing: 0, passed: 1, merged: 0, stuck: 0,
+            })
+          })
+          ```
+        files: [hooks/test/tracker.test.ts]
+      - text: |
+          [ ] Run the standard check from the repo root:
+
+          ```sh
+          sh tests/run.sh
+          ```
+
+          Expected: every script test prints its `ok` lines, and (when
+          `claude` is on PATH) `claude plugin validate .` passes and
+          `claude plugin test` reports every test in `hooks/test/` passing —
+          among them the six criteria tests named in this milestone's
+          contract — with exit status 0. If `claude` is not on PATH the
+          script prints `skipping mod checks: claude not on PATH`; then the
+          milestone is not verified — say so in the report rather than
+          claiming the criteria pass.
+        files: []
+    rules:
+      - plugin-authoring
+  - number: 2
+    slug: presentation
+    goal: "Boxes, header and band read the new statuses in the new colours"
+    description: |
+      Spec requirements 9, 11, 12, 13 (and the marks M1 added, requirement 14).
+      Builds on M1's `Status` set and `runClock`.
+
+      **What M1 leaves you.** When this milestone starts, M1 has merged:
+      - `types/index.d.ts`: `Status` is the eleven statuses
+        `'waiting' | 'ready' | 'implementing' | 'implemented' | 'verifying' | 'verified' | 'failed' | 'fixing' | 'passed' | 'merged' | 'stuck'`,
+        and `export type RunClock = { phase: 'running' | 'idle' | 'done'; elapsedMs: number }`.
+      - `hooks/tracker.ts`: `export function runClock(state: RunState, now: number): RunClock`
+        (running while any agent has `endedAt === null`; otherwise `done`
+        when every plan milestone is merged, else `idle`; elapsed stops at
+        the last agent's end once nothing runs).
+      - `hooks/layout.ts`: `STATUS_MARK` has all eleven keys (implemented
+        and verified `◌`, failed `✗`, stuck `⊘`, passed `◑`, merged `✓`,
+        implementing `●`, verifying `◐`, fixing `↻`, ready `○`, waiting `·`);
+        the private `STATUS_ORDER` lists all eleven. `RUNNING` is still
+        `['implementing', 'verifying', 'fixing']`.
+      - `hooks/test/layout.test.ts`: the `counts` record in the test
+        `formatDuration cut headerLine bandLine` has all eleven keys.
+      If any of these is missing, stop and report: M1 is not merged.
+
+      **Status line** (`boxLine` case `'status'` in `hooks/layout.ts`): the
+      hand-off statuses carry what they wait for —
+      `implemented · awaiting verify`, `verified · awaiting verdict`,
+      `passed · awaiting merge`, `failed · awaiting fix`. Other statuses keep
+      `${mark} ${status}`. The `(attempt N)` suffix stays. Put the labels in an
+      exported `STATUS_LABEL: Record<Status, string>` so tests and the README
+      read one source. The row is still `framed(...)`, so at a narrow box
+      the label is cut with `…` and the row keeps the box width.
+
+      **Header.** `headerLine(title, counts, clock: RunClock, w)` replaces the
+      `elapsedMs` argument with M1's `RunClock`. It ends with
+      `formatDuration(clock.elapsedMs)` while running, with
+      `${formatDuration(elapsedMs)} · idle` when idle, and
+      `${formatDuration(elapsedMs)} · done` when done. The title is still cut
+      first (the existing `titleRoom` arithmetic is kept; only the time part
+      grows).
+
+      **Band.** `bandLine(milestones, views, w)` lists the merged count, then
+      every milestone whose status is running (`implementing`, `verifying`,
+      `fixing`) or a hand-off (`implemented`, `verified`, `passed`, `failed`),
+      as `M<n> <status>`, and ends with `· idle` when none is running, e.g.
+      `rpir: 1 merged · M2 verifying · M3 implemented` and
+      `rpir: 1 merged · M2 implemented · idle`. Stuck and not-started
+      milestones are left out (spec requirement 12). The band names the bare
+      status (not the `· awaiting …` label) to stay short. The whole line is
+      still cut to `w` with `cut`, so at a very narrow width `· idle` can be
+      cut off like any other tail; that is accepted.
+
+      **Colours** (`styleOf` in `hooks/register.tsx`, exported so a test can
+      call it): implementing, verifying, fixing, implemented, verified →
+      `{ color: '#5FAFFF' }`; passed, merged → `{ color: 'success' }`;
+      waiting → `{ dimColor: true }`; ready → `{}`; failed →
+      `{ color: 'warning' }`; stuck → `{ color: 'error' }`; `null` → `{}`.
+      The ticker logic in `register.tsx` (redraw each second only while an
+      agent runs) stays; the pane `ui.render` hook passes `runClock(run, now)`
+      to `headerLine`. Nothing else in `register.tsx` changes; in particular
+      the band render hook is untouched (it already calls `bandLine`).
+
+      **Why the header test sits in the wiring test.** The criterion "pane
+      header says idle" proves that `register.tsx` hands `runClock` (not the
+      old live `now - startedAt`) to `headerLine`, which only a mounted pane
+      shows.
+
+      `.claude-plugin/plugin.json` is not touched here: M1 already set
+      `0.5.1` for this change.
+    deliverables: |
+      - `hooks/layout.ts` — `export const STATUS_LABEL: Record<Status, string>`;
+        status row uses it; `headerLine(title: string, counts: Record<Status, number>, clock: RunClock, w: number): string`;
+        `bandLine` as above (new private `LISTED: Status[]`, the running and
+        hand-off statuses).
+      - `hooks/register.tsx` — `export function styleOf(status: Status | null): { color?: string; dimColor?: boolean }`
+        with the mapping above; the pane header calls `headerLine(..., runClock(run, now), width)`.
+      - `hooks/test/layout.test.ts` — new and updated tests, including the stuck-mark case.
+      - `hooks/test/wiring.test.tsx` — styleOf and header tests.
+    contract:
+      check: sh tests/run.sh
+      criteria:
+        - name: "hooks/test/layout.test.ts::hand-off status lines"
+          given: "views with status implemented, verified, passed and failed"
+          when: "layoutGraph draws them"
+          then: "the status rows read `◌ implemented · awaiting verify`, `◌ verified · awaiting verdict`, `◑ passed · awaiting merge` and `✗ failed · awaiting fix`, each within the box width"
+        - name: "hooks/test/layout.test.ts::stuck box shows the stuck mark"
+          given: "a milestone view with status stuck"
+          when: "the box status row renders"
+          then: "the row reads `⊘ stuck` and `⊘` takes one cell (spec requirement 14)"
+        - name: "hooks/test/layout.test.ts::header running idle done"
+          given: "the same counts with a RunClock of running 125s, idle 83s and done 300s"
+          when: "headerLine runs at width 80"
+          then: "it ends `2m05s`, `1m23s · idle` and `5m00s · done`, and never exceeds the width"
+        - name: "hooks/test/layout.test.ts::band lists hand-offs and idle"
+          given: "a plan with one merged, one verifying and one implemented milestone; then the same with nothing running"
+          when: "bandLine runs"
+          then: "it reads `rpir: 1 merged · M2 verifying · M3 implemented`, then ends with `· idle`"
+        - name: "hooks/test/wiring.test.tsx::styleOf colours"
+          given: "each of the eleven statuses and null"
+          when: "styleOf runs"
+          then: "styleOf returns { color: '#5FAFFF' } for implementing, verifying, fixing, implemented and verified; { color: 'success' } for passed and merged; { dimColor: true } for waiting; {} for ready; { color: 'warning' } for failed; { color: 'error' } for stuck; and {} for null"
+        - name: "hooks/test/wiring.test.tsx::pane header says idle"
+          given: "a wired session where an implementer dispatch ended with `STATUS: DONE` and no other agent runs"
+          when: "the pane renders"
+          then: "the header line ends with `· idle` and the box shows `implemented · awaiting verify`"
+        - name: "human: colours and glyphs"
+          given: "the demo run (M3) or any implement run with the plugin from this branch"
+          when: "the person watches the pane"
+          then: "boxes that are implementing, verifying, fixing, implemented or verified are light blue; passed and merged green; failed orange; stuck red; waiting grey; and the marks ◌ ✗ ⊘ take one cell (spec P1, P2)"
+      paths:
+        - hooks/layout.ts
+        - hooks/register.tsx
+        - hooks/test/layout.test.ts
+        - hooks/test/wiring.test.tsx
+    rules:
+      - plugin-authoring
+    depends-on:
+      - statuses
+    steps:
+      - |
+        [ ] **Confirm M1 is in.** From the repo root run
+        `grep -n "RunClock" types/index.d.ts && grep -n "export function runClock" hooks/tracker.ts && grep -n "verified:" hooks/layout.ts`.
+        Expected: one hit from each command. Then run `sh tests/run.sh`;
+        expected: it exits 0 (the M1 baseline is green).
+      - |
+        [ ] **Write the failing layout tests.** In `hooks/test/layout.test.ts`,
+        add `STATUS_LABEL` to the import from `'../layout'` and add
+        `import type { RunClock } from '../../types'` (or add `RunClock` to the
+        existing type import from `'../../types'`). In the existing test
+        `formatDuration cut headerLine bandLine`, change the two `headerLine`
+        calls from `125_000` to `{ phase: 'running', elapsedMs: 125_000 }`
+        (every expected string in that test stays as it is). Then append:
+
+        ```ts
+        test('hand-off status lines', () => {
+          const ms = [m(1, 'p'), m(2, 'q'), m(3, 'r'), m(4, 's')]
+          const views = {
+            p: view({ status: 'implemented', attempts: 1 }),
+            q: view({ status: 'verified', attempts: 1, verifyRounds: 1 }),
+            r: view({ status: 'passed', attempts: 1, verifyRounds: 1 }),
+            s: view({ status: 'failed', attempts: 1, verifyRounds: 1 }),
+          }
+          const expected: Record<string, string> = {
+            p: '◌ implemented · awaiting verify',
+            q: '◌ verified · awaiting verdict',
+            r: '◑ passed · awaiting merge',
+            s: '✗ failed · awaiting fix',
+          }
+          expect(STATUS_LABEL.implemented).toBe('implemented · awaiting verify')
+          expect(STATUS_LABEL.verified).toBe('verified · awaiting verdict')
+          expect(STATUS_LABEL.passed).toBe('passed · awaiting merge')
+          expect(STATUS_LABEL.failed).toBe('failed · awaiting fix')
+          expect(STATUS_LABEL.implementing).toBe('implementing')
+          for (const width of [60, 40]) {
+            const rows = layoutGraph(ms, views, width)
+            for (const row of rows) expect(len(row.gutter + row.body)).toBe(width)
+            for (const slug of Object.keys(expected)) {
+              const row = rows.find((r) => r.key === `${slug}:status`)!
+              expect(row.gutter).toBe('')
+              expect(row.body).toBe(`│ ${expected[slug].padEnd(width - 4)} │`)
+            }
+          }
+          // a box narrow enough to cut the label keeps its width and ends the label with …
+          const tight = layoutWithLanes(
+            [m(1, 'r1'), ...[2, 3, 4, 5, 6].map((i) => m(i, `x${i}`, ['r1'])), m(7, 'p', ['x2', 'x3', 'x4', 'x5', 'x6'])],
+            { p: view({ status: 'implemented', attempts: 1 }) },
+            40,
+          ).rows
+          const prow = tight.find((r) => r.key === 'p:status')!
+          expect(len(prow.gutter + prow.body)).toBe(40)
+          expect(prow.body.startsWith('│ ◌ implemented')).toBe(true)
+          if (len(prow.body) - 4 < len(expected.p)) expect(prow.body).toContain('…')
+        })
+
+        test('stuck box shows the stuck mark', () => {
+          const rows = layoutGraph([m(1, 'k')], { k: view({ status: 'stuck', attempts: 1 }) }, 60)
+          const row = rows.find((r) => r.key === 'k:status')!
+          expect(row.body).toContain('⊘ stuck')
+          expect(row.body).not.toContain('awaiting')
+          expect(STATUS_MARK.stuck).toBe('⊘')
+          expect(len(STATUS_MARK.stuck)).toBe(1)
+          expect(len(row.body)).toBe(60)
+        })
+
+        test('header running idle done', () => {
+          const counts: Record<Status, number> = {
+            waiting: 3, ready: 0, implementing: 1, implemented: 0, verifying: 1, verified: 0,
+            failed: 0, fixing: 0, passed: 0, merged: 2, stuck: 0,
+          }
+          const title = 'A very long change title that would never fit beside the counts in a narrow pane'
+          const cases: Array<[RunClock, string]> = [
+            [{ phase: 'running', elapsedMs: 125_000 }, '2m05s'],
+            [{ phase: 'idle', elapsedMs: 83_000 }, '1m23s · idle'],
+            [{ phase: 'done', elapsedMs: 300_000 }, '5m00s · done'],
+          ]
+          for (const [clock, tail] of cases) {
+            const header = headerLine(title, counts, clock, 80)
+            expect(len(header)).toBeLessThanOrEqual(80)
+            expect(header).not.toContain('\n')
+            expect(header.endsWith(` — ${tail}`)).toBe(true)
+            expect(header).toContain('2 merged · 1 verifying · 1 implementing · 3 waiting')
+            expect(len(headerLine(title, counts, clock, 40))).toBeLessThanOrEqual(40)
+          }
+          expect(headerLine(title, counts, { phase: 'running', elapsedMs: 125_000 }, 80).endsWith('idle')).toBe(false)
+        })
+
+        test('band lists hand-offs and idle', () => {
+          const ms = [m(1, 'a'), m(2, 'b', ['a']), m(3, 'c', ['a']), m(4, 'd', ['b', 'c']), m(5, 'e')]
+          const busy = {
+            a: view({ status: 'merged' }),
+            b: view({ status: 'verifying' }),
+            c: view({ status: 'implemented' }),
+            d: view({ status: 'waiting' }),
+            e: view({ status: 'stuck' }),
+          }
+          expect(bandLine(ms.slice(0, 4), busy, 100)).toBe('rpir: 1 merged · M2 verifying · M3 implemented')
+          // stuck and not-started milestones are left out
+          expect(bandLine(ms, busy, 100)).toBe('rpir: 1 merged · M2 verifying · M3 implemented')
+          const quiet = { ...busy, b: view({ status: 'implemented' }) }
+          expect(bandLine(ms.slice(0, 4), quiet, 100)).toBe('rpir: 1 merged · M2 implemented · M3 implemented · idle')
+          const handOffs = {
+            a: view({ status: 'passed' }), b: view({ status: 'failed' }),
+            c: view({ status: 'verified' }), d: view({ status: 'ready' }),
+          }
+          expect(bandLine(ms.slice(0, 4), handOffs, 100)).toBe('rpir: 0 merged · M1 passed · M2 failed · M3 verified · idle')
+          expect(len(bandLine(ms.slice(0, 4), quiet, 20))).toBeLessThanOrEqual(20)
+        })
+        ```
+
+        (Boxes with no dependency lanes have no gutter, so at 60 and 40
+        columns the four labels fit whole: inner width is `width − 4`. The
+        `tight` graph draws lanes into `p`, narrowing its box towards the
+        30-column minimum, so its label may be cut; the test then requires the
+        `…` and the full row width.)
+      - |
+        [ ] **Status labels in `hooks/layout.ts`.** Add the type import
+        `RunClock` to the existing `import type { ... } from '../types'`.
+        Below `STATUS_MARK`, add:
+
+        ```ts
+        /** Status-row text after the mark: hand-off statuses name what they wait for. */
+        export const STATUS_LABEL: Record<Status, string> = {
+          waiting: 'waiting',
+          ready: 'ready',
+          implementing: 'implementing',
+          implemented: 'implemented · awaiting verify',
+          verifying: 'verifying',
+          verified: 'verified · awaiting verdict',
+          failed: 'failed · awaiting fix',
+          fixing: 'fixing',
+          passed: 'passed · awaiting merge',
+          merged: 'merged',
+          stuck: 'stuck',
+        }
+        ```
+
+        Below `const RUNNING: Status[] = [...]`, add the band's set:
+
+        ```ts
+        /** Statuses the band lists: a subagent runs, or the milestone waits on the orchestrator. */
+        const LISTED: Status[] = ['implementing', 'verifying', 'fixing', 'implemented', 'verified', 'passed', 'failed']
+        ```
+
+        In `boxLine`, replace the `'status'` case with:
+
+        ```ts
+            case 'status':
+              return framed(`${STATUS_MARK[v.status]} ${STATUS_LABEL[v.status]}${v.attempts > 1 ? ` (attempt ${v.attempts})` : ''}`)
+        ```
+      - |
+        [ ] **Header in `hooks/layout.ts`.** Replace `headerLine` (keep its
+        doc comment, adding "then elapsed, with `· idle` or `· done` once
+        nothing runs") with:
+
+        ```ts
+        export function headerLine(
+          title: string,
+          counts: Record<Status, number>,
+          clock: RunClock,
+          w: number,
+        ): string {
+          const tally = STATUS_ORDER.filter((s) => (counts[s] ?? 0) > 0)
+            .map((s) => `${counts[s]} ${s}`)
+            .join(' · ')
+          const time = clock.phase === 'running'
+            ? formatDuration(clock.elapsedMs)
+            : `${formatDuration(clock.elapsedMs)} · ${clock.phase}`
+          const rest = [tally, time].filter((p) => p !== '').join(' — ')
+          const titleRoom = Math.max(8, w - width(rest) - 3)
+          return cut(`${cut(title, titleRoom)} — ${rest}`, w)
+        }
+        ```
+      - |
+        [ ] **Band in `hooks/layout.ts`.** Replace `bandLine`'s doc comment
+        and body with:
+
+        ```ts
+        /** Band text, e.g. "rpir: 1 merged · M2 verifying · M3 implemented" — merged count, then each
+         *  running or hand-off milestone as "M<n> <status>", then "idle" when none runs; cut to width. */
+        export function bandLine(
+          milestones: PlanMilestone[],
+          views: Record<string, MilestoneView>,
+          w: number,
+        ): string {
+          const ordered = orderForDrawing(milestones)
+          const statusOf = (m: PlanMilestone): Status | null => views[m.slug]?.status ?? null
+          const merged = ordered.filter((m) => statusOf(m) === 'merged').length
+          const listed = ordered
+            .filter((m) => { const s = statusOf(m); return s !== null && LISTED.includes(s) })
+            .map((m) => `M${m.number} ${statusOf(m)}`)
+          const isIdle = !ordered.some((m) => { const s = statusOf(m); return s !== null && RUNNING.includes(s) })
+          return cut([`rpir: ${merged} merged`, ...listed, ...(isIdle ? ['idle'] : [])].join(' · '), w)
+        }
+        ```
+      - |
+        [ ] **Write the failing wiring tests.** In `hooks/test/wiring.test.tsx`
+        add `import type { Status } from '../../types'` (extend the existing
+        type import) and `import { styleOf } from '../register'`, then append:
+
+        ```ts
+        test('styleOf colours', () => {
+          const BLUE = { color: '#5FAFFF' }
+          const expected: Record<Status, { color?: string; dimColor?: boolean }> = {
+            implementing: BLUE, verifying: BLUE, fixing: BLUE, implemented: BLUE, verified: BLUE,
+            passed: { color: 'success' }, merged: { color: 'success' },
+            waiting: { dimColor: true }, ready: {},
+            failed: { color: 'warning' }, stuck: { color: 'error' },
+          }
+          expect(Object.keys(expected)).toHaveLength(11)
+          for (const [status, style] of Object.entries(expected)) {
+            expect(styleOf(status as Status)).toEqual(style)
+          }
+          expect(styleOf(null)).toEqual({})
+        })
+
+        test('pane header says idle', async ($, on) => {
+          const kit = setup(on, filesWithPlan(3))
+          const agentId = await spawn($, implPrompt(1, 'a'), 'tu-1')
+          await kit.clock.advance(5000)
+          await finish($, agentId, 'Implemented.\n\nSTATUS: DONE')
+          await kit.clock.advance(10_000) // later redraws must not count on
+          expect(runOf(kit)!.agents[agentId]!.endedAt).not.toBeNull()
+          for (const surface of SURFACES) {
+            const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PANE_PROPS, requestId: PANE } as never)
+            expect(await ui.find({ type: 'Text', text: /— 5s · idle$/ })).toBeDefined()
+            expect(await ui.find({ type: 'Text', text: /◌ implemented · awaiting verify/ })).toBeDefined()
+            expect(await ui.find({ type: 'Text', text: /1 implemented/ })).toBeDefined()
+            await ui.unmount()
+          }
+        })
+        ```
+
+        Premise PL5: after `finish`, no agent runs, so M1's `runClock` reads
+        `idle` with elapsed = end − start = 5s. If the kit's clock does not
+        advance the `$.clock.now()` the mod reads (so elapsed is `0s`), relax
+        the first regex to `/· idle$/`; the outcome the test must reach is that
+        the header ends `· idle` and the box shows
+        `◌ implemented · awaiting verify`.
+
+        Claim (importing `'../register'` from a test): the hooks module
+        imports `atom`, `read`, `update` from `'claude-code'` and builds its
+        atoms at module load; the test runtime is expected to load it a second
+        time without side effects. If that import fails under
+        `claude plugin test`, move the mapping into `hooks/layout.ts` as
+        `export function styleOf(...)` with the same body, have
+        `hooks/register.tsx` `export { styleOf } from './layout'` (and import
+        it for its own use), and import `styleOf` from `'../layout'` in the
+        wiring test. The outcome either way: the wiring test calls the
+        `styleOf` the pane uses.
+      - |
+        [ ] **Colours and header clock in `hooks/register.tsx`.** Change the
+        tracker import to
+        `import { countByStatus, emptyRun, parseDispatch, reduce, runClock, viewOf } from './tracker'`.
+        Replace the private `styleOf` with:
+
+        ```tsx
+        /** Colour of a status's box (spec requirement 13). Exported for the wiring test. */
+        export function styleOf(status: Status | null): { color?: string; dimColor?: boolean } {
+          switch (status) {
+            case 'implementing':
+            case 'verifying':
+            case 'fixing':
+            case 'implemented':
+            case 'verified': return { color: '#5FAFFF' }
+            case 'passed':
+            case 'merged': return { color: 'success' }
+            case 'waiting': return { dimColor: true }
+            case 'failed': return { color: 'warning' }
+            case 'stuck': return { color: 'error' }
+            default: return {}
+          }
+        }
+        ```
+
+        In the pane `ui.render` hook, replace
+        `{headerLine(title, countByStatus(run, now), now - run.startedAt, width)}`
+        with
+        `{headerLine(title, countByStatus(run, now), runClock(run, now), width)}`.
+        Leave the ticker (`hasRunning`, `ensureTicker`, `tick`) and the band
+        hook as they are.
+
+        Premises P1 (a hex `color` draws as that colour in the terminal) and
+        PL4 (`warning` is a valid theme key; `register.tsx` already uses
+        `color="warning"` for the plan error) are not testable here; the
+        human criterion "colours and glyphs" checks them. If `claude plugin
+        validate .` or the type check rejects `'#5FAFFF'` as a `color` value,
+        grep the `claude-code` types file the `plugin-authoring` skill names
+        for the `Text` `color` prop type and use the hex form it accepts
+        (e.g. `'rgb(95,175,255)'` or `'ansi256(75)'`), keeping the test's
+        expected value in step with it.
+      - |
+        [ ] **Run the check.** From the repo root run `sh tests/run.sh`.
+        Expected: it exits 0; `claude plugin test` reports every test passing,
+        including `hand-off status lines`, `stuck box shows the stuck mark`,
+        `header running idle done`, `band lists hand-offs and idle`,
+        `styleOf colours` and `pane header says idle`, and the existing
+        `formatDuration cut headerLine bandLine`, `box rows follow the view`,
+        `merge bash marks the milestone merged` and
+        `pane draws header rows as Buttons`. If `claude` is not on PATH the
+        script prints `skipping mod checks: claude not on PATH`; that is not
+        a pass for this milestone — report it.
+      - |
+        [ ] **Commit.** `git add hooks/layout.ts hooks/register.tsx hooks/test/layout.test.ts hooks/test/wiring.test.tsx`
+        and commit with the message
+        `pane: hand-off labels, idle/done header, band hand-offs, new colours`.
+  - number: 3
+    slug: demo
+    goal: "A committed demo script runs the real implement skill on a throwaway four-milestone plan"
+    description: |
+      Spec requirements 15–17. Independent of M1 and M2 (it touches only
+      `tests/`), so it runs in parallel with them. M4 (the README) points a
+      reader at the script this milestone writes; the human criterion below is
+      checked on the integrated stack, where M1 and M2's pane changes are in.
+
+      **Why a real run.** The spec's design picks the real
+      `/kentra-rpir:implement` on a tiny plan over a scripted simulation: the
+      same dispatch prompts, background agents, worktrees and
+      `git merge --no-ff` lines the mod reads, ending with every box merged.
+      Haiku implementers and verifiers keep it cheap (spec P5).
+
+      **`tests/demo/run-demo.sh [<dir>] [--print-only]`** (POSIX sh, `set -eu`):
+      1. `repo` = the plugin root (`$(cd "$(dirname "$0")/../.." && pwd)`).
+      2. `dir` = the first non-flag argument, else
+         `$(mktemp -d "${TMPDIR:-/tmp}/rpir-demo.XXXXXX")`; it must be empty
+         or absent (else exit 1 with a message; an unknown `-` option or a
+         second directory exits 2). `dir` is then made absolute with
+         `cd && pwd`. The project goes in `$dir/project`, the bare origin in
+         `$dir/origin.git`.
+      3. Copy `tests/demo/fixture/` into `$dir/project` (with its dotfiles),
+         `git init -q -b main`, set a local `user.name`/`user.email`
+         (`rpir demo`, `demo@example.invalid`) and `commit.gpgsign false`, so
+         commits work anywhere, `git add -A`, `git commit -q -m "demo: initial"`.
+      4. `git init -q --bare "$dir/origin.git"` and
+         `git -C "$dir/project" remote add origin "$dir/origin.git"`.
+      5. Print `Demo project: <project path>` and
+         `Command: claude --plugin-dir "<repo>" "/kentra-rpir:implement docs/changes/2026-10-16-demo-diamond"`.
+      6. Unless `--print-only`: `cd "$dir/project"` and `exec` that command.
+
+      `--plugin-dir` loads this checkout's skills and mod over any installed
+      kentra-rpir (spec P4). The command is exactly spec requirement 16's; the
+      fixture leaves `impl-orchestrator` at its default (opus), the person's
+      usual session model, so the skill need not ask about the model.
+      The temporary directory is not removed: the person inspects the result
+      and deletes it.
+
+      **Fixture** (`tests/demo/fixture/`), committed as plain files:
+      - `.kentra-rpir.yaml` — `changesDir: docs/changes`, `tracker: none`,
+        `constitution: false`, `tier: light`, roles
+        `implementer: { agent: "kentra-rpir:implementer", model: haiku }`,
+        `verifier: { agent: "kentra-rpir:verifier", model: haiku }`,
+        and `implement:` with
+        `worktreesDir: .worktrees`, `branchPrefix: rpir/`,
+        `openPullRequest: false`.
+      - `.gitignore` — `.kentra-rpir/` and `.worktrees/`.
+      - `check.sh` — the plan's check: for each of `alpha beta gamma delta`,
+        if `out/<name>.txt` exists it must contain exactly the line `<name>`;
+        exits 1 naming the first wrong file, else prints `ok` and exits 0.
+        Green on the empty project.
+      - `docs/changes/2026-10-16-demo-diamond/spec.md` — frontmatter
+        `title: Demo diamond`, `type: chore`, `status: planned`, `tier: light`;
+        a two-line Problem and four Requirements (one per file).
+      - `docs/changes/2026-10-16-demo-diamond/plan.yaml` — schema 0.3.0, four
+        milestones: M1 `alpha` (root), M2 `beta` and M3 `gamma` (each
+        `depends-on: [alpha]`), M4 `delta` (`depends-on: [beta, gamma]`). Each
+        creates `out/<name>.txt` holding the line `<name>`, `check: sh check.sh`,
+        one criterion `check.sh::<name>` (given the project, when `sh check.sh`
+        runs, then it prints `ok` and `out/<name>.txt` reads `<name>`),
+        `paths: [out/<name>.txt]`, and two steps (write the file; run
+        `sh check.sh`, expect `ok`). It validates with `milestoned-plan-dag
+        validate`.
+
+      The fixture files sit inside this repository but are inert here: the
+      nested `.gitignore` only affects `tests/demo/fixture/`, and no test or
+      workflow check reads `tests/demo/` other than `demo.test.sh`.
+
+      **`tests/demo.test.sh`**, called from `tests/run.sh` after the other
+      script tests: runs `sh tests/demo/run-demo.sh "$tmp" --print-only` into
+      a fresh `mktemp -d` (removed on exit), then checks: the output names
+      the project path and the `claude --plugin-dir` command; when
+      `milestoned-plan-dag` is on PATH, `validate` passes on the plan;
+      `git -C "$tmp/project" status --porcelain` is empty;
+      `git rev-list --count HEAD` is 1; `git remote get-url origin` names
+      `$tmp/origin.git`; `sh check.sh` in the project prints `ok`. Prints
+      `demo.test.sh: ok` on success, exits non-zero with a message otherwise.
+
+      Every file's full text is in the steps below; it was run green while
+      this milestone was written. Copy it as given.
+    deliverables: |
+      - `tests/demo/run-demo.sh` — builds the throwaway project and bare
+        origin from the fixture, prints the path and command, and (without
+        `--print-only`) execs Claude Code on the implement skill.
+      - `tests/demo/fixture/.kentra-rpir.yaml` — the demo project's config:
+        Haiku implementer and verifier, default orchestrator, no pull request.
+      - `tests/demo/fixture/.gitignore` — keeps `.kentra-rpir/` and
+        `.worktrees/` out of the demo project's tree.
+      - `tests/demo/fixture/check.sh` — the demo plan's check.
+      - `tests/demo/fixture/docs/changes/2026-10-16-demo-diamond/spec.md` —
+        the demo change's spec, `status: planned`.
+      - `tests/demo/fixture/docs/changes/2026-10-16-demo-diamond/plan.yaml` —
+        the four-milestone diamond plan.
+      - `tests/demo.test.sh` — the `--print-only` test.
+      - `tests/run.sh` — one new line, `sh tests/demo.test.sh`, after `sh tests/assemble-plan.test.sh`.
+    contract:
+      check: sh tests/run.sh
+      criteria:
+        - name: "tests/demo.test.sh"
+          given: "a fresh empty temporary directory"
+          when: "run-demo.sh runs into it with --print-only"
+          then: "it prints the project path and the claude command without starting Claude Code; the project has a clean tree, one commit, origin set to the bare repo, a plan that validates, and `sh check.sh` prints ok"
+      paths:
+        - tests/demo/**
+        - tests/demo.test.sh
+        - tests/run.sh
+    steps:
+      - |
+        [ ] Create the fixture directories:
+        `mkdir -p tests/demo/fixture/docs/changes/2026-10-16-demo-diamond`.
+      - |
+        [ ] Write `tests/demo/fixture/.kentra-rpir.yaml`. Keys it leaves out take the
+        plugin's defaults (`templates/kentra-rpir.yaml`), so only the cheap roles and
+        the implement settings are written:
+
+        ```yaml
+        # kentra-rpir configuration for the throwaway demo project. Cheap roles.
+        changesDir: docs/changes
+        tracker: none
+        constitution: false
+        tier: light
+        roles:
+          implementer: { agent: "kentra-rpir:implementer", model: haiku }
+          verifier:    { agent: "kentra-rpir:verifier",    model: haiku }
+        implement:
+          worktreesDir: .worktrees
+          branchPrefix: rpir/
+          openPullRequest: false
+        ```
+      - |
+        [ ] Write `tests/demo/fixture/.gitignore`. The implement skill writes
+        `.kentra-rpir/sessions.map` and the worktrees at the project root; both must
+        stay out of `git status`:
+
+        ```
+        # kentra-rpir's working state and worktrees
+        .kentra-rpir/
+        .worktrees/
+        ```
+      - |
+        [ ] Write `tests/demo/fixture/check.sh`, the demo plan's `check`. It is green
+        on the empty project; `cmp` makes "exactly the line" byte-exact, so a missing
+        newline or an extra line fails:
+
+        ```sh
+        #!/bin/sh
+        # The demo plan's check: every out/<name>.txt that exists holds exactly the line <name>.
+        cd "$(dirname "$0")" || exit 1
+        for name in alpha beta gamma delta; do
+          f="out/$name.txt"
+          [ -e "$f" ] || continue
+          if ! printf '%s\n' "$name" | cmp -s - "$f"; then
+            echo "check.sh: $f must hold exactly the line $name" >&2
+            exit 1
+          fi
+        done
+        echo ok
+        ```
+      - |
+        [ ] Write `tests/demo/fixture/docs/changes/2026-10-16-demo-diamond/spec.md`.
+        It is `status: planned`, which the implement skill expects (premise PL3:
+        the skill runs on a change folder holding only `spec.md` and `plan.yaml`):
+
+        ```markdown
+        ---
+        title: Demo diamond
+        type: chore
+        status: planned
+        tier: light
+        ---
+
+        ## Problem
+
+        The milestone graph pane needs a small, real plan to watch end to end.
+        This throwaway project gives it four trivial milestones in a diamond.
+
+        ## Requirements
+
+        1. `out/alpha.txt` holds the single line `alpha`.
+        2. `out/beta.txt` holds the single line `beta`.
+        3. `out/gamma.txt` holds the single line `gamma`.
+        4. `out/delta.txt` holds the single line `delta`.
+        ```
+      - |
+        [ ] Write `tests/demo/fixture/docs/changes/2026-10-16-demo-diamond/plan.yaml`
+        exactly as below. It was validated with `milestoned-plan-dag validate` (v0.3.0)
+        while this milestone was written. The diamond is alpha → {beta, gamma} → delta:
+
+        ```yaml
+        # yaml-language-server: $schema=https://raw.githubusercontent.com/kentra-io/milestoned-plan-dag/v0.3.0/schema/plan.schema.json
+        schemaVersion: 0.3.0
+        description: |
+          A throwaway demo plan for the kentra-rpir milestone graph pane. Four
+          milestones in a diamond: alpha first, beta and gamma in parallel on alpha,
+          delta on both. Each writes one file, `out/<name>.txt`, holding the single
+          line `<name>`. `sh check.sh` at the project root checks every file that
+          exists; it is green on the empty project.
+        milestones:
+          - number: 1
+            slug: alpha
+            goal: "out/alpha.txt holds the line alpha"
+            description: |
+              Creates `out/alpha.txt` with exactly one line, `alpha`. Touch no other file.
+            deliverables: |
+              - `out/alpha.txt` — one line, `alpha`.
+            steps:
+              - "[ ] Run `mkdir -p out && printf 'alpha\\n' > out/alpha.txt`."
+              - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
+            contract:
+              check: sh check.sh
+              criteria:
+                - name: "check.sh::alpha"
+                  given: "the project with this milestone's file written"
+                  when: "`sh check.sh` runs at the project root"
+                  then: "it prints `ok` and exits 0, and `out/alpha.txt` reads exactly `alpha`"
+              paths:
+                - out/alpha.txt
+          - number: 2
+            slug: beta
+            goal: "out/beta.txt holds the line beta"
+            depends-on: [alpha]
+            description: |
+              Creates `out/beta.txt` with exactly one line, `beta`. Touch no other file.
+            deliverables: |
+              - `out/beta.txt` — one line, `beta`.
+            steps:
+              - "[ ] Run `mkdir -p out && printf 'beta\\n' > out/beta.txt`."
+              - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
+            contract:
+              check: sh check.sh
+              criteria:
+                - name: "check.sh::beta"
+                  given: "the project with this milestone's file written"
+                  when: "`sh check.sh` runs at the project root"
+                  then: "it prints `ok` and exits 0, and `out/beta.txt` reads exactly `beta`"
+              paths:
+                - out/beta.txt
+          - number: 3
+            slug: gamma
+            goal: "out/gamma.txt holds the line gamma"
+            depends-on: [alpha]
+            description: |
+              Creates `out/gamma.txt` with exactly one line, `gamma`. Touch no other file.
+            deliverables: |
+              - `out/gamma.txt` — one line, `gamma`.
+            steps:
+              - "[ ] Run `mkdir -p out && printf 'gamma\\n' > out/gamma.txt`."
+              - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
+            contract:
+              check: sh check.sh
+              criteria:
+                - name: "check.sh::gamma"
+                  given: "the project with this milestone's file written"
+                  when: "`sh check.sh` runs at the project root"
+                  then: "it prints `ok` and exits 0, and `out/gamma.txt` reads exactly `gamma`"
+              paths:
+                - out/gamma.txt
+          - number: 4
+            slug: delta
+            goal: "out/delta.txt holds the line delta"
+            depends-on: [beta, gamma]
+            description: |
+              Creates `out/delta.txt` with exactly one line, `delta`. Touch no other file.
+            deliverables: |
+              - `out/delta.txt` — one line, `delta`.
+            steps:
+              - "[ ] Run `mkdir -p out && printf 'delta\\n' > out/delta.txt`."
+              - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
+            contract:
+              check: sh check.sh
+              criteria:
+                - name: "check.sh::delta"
+                  given: "the project with this milestone's file written"
+                  when: "`sh check.sh` runs at the project root"
+                  then: "it prints `ok` and exits 0, and `out/delta.txt` reads exactly `delta`"
+              paths:
+                - out/delta.txt
+        ```
+      - |
+        [ ] Validate the fixture:
+        `milestoned-plan-dag validate tests/demo/fixture/docs/changes/2026-10-16-demo-diamond/plan.yaml`.
+        Expected: `<path> is valid`, exit 0. Then `sh tests/demo/fixture/check.sh`
+        prints `ok` (there is no `out/` yet).
+      - |
+        [ ] Write `tests/demo/run-demo.sh`. Premise PL2: `git init -b main` needs
+        git ≥ 2.28; the outcome required is a project on branch `main` with exactly
+        one commit. `cp -R "$fixture/."` copies the dotfiles. `commit.gpgsign false`
+        keeps a user's global signing setting from failing the commit:
+
+        ```sh
+        #!/bin/sh
+        # Creates a throwaway git project holding a four-milestone kentra-rpir plan,
+        # with a bare origin beside it, then runs the real implement skill on it
+        # with this repository loaded as the plugin.
+        #
+        # Usage: sh tests/demo/run-demo.sh [<dir>] [--print-only]
+        #   <dir>         where to create project/ and origin.git (default: a new temp dir);
+        #                 must be empty or absent
+        #   --print-only  create the repository and print the command; do not start Claude Code
+        set -eu
+
+        repo=$(cd "$(dirname "$0")/../.." && pwd)
+        fixture="$repo/tests/demo/fixture"
+        change=docs/changes/2026-10-16-demo-diamond
+
+        dir=
+        print_only=0
+        for arg in "$@"; do
+          case $arg in
+            --print-only) print_only=1 ;;
+            -*) echo "run-demo.sh: unknown option $arg" >&2; exit 2 ;;
+            *)
+              if [ -n "$dir" ]; then echo "run-demo.sh: more than one directory given" >&2; exit 2; fi
+              dir=$arg ;;
+          esac
+        done
+
+        if [ -z "$dir" ]; then
+          dir=$(mktemp -d "${TMPDIR:-/tmp}/rpir-demo.XXXXXX")
+        elif [ -e "$dir" ]; then
+          if [ ! -d "$dir" ] || [ -n "$(ls -A "$dir")" ]; then
+            echo "run-demo.sh: $dir must be an empty directory or absent" >&2
+            exit 1
+          fi
+        else
+          mkdir -p "$dir"
+        fi
+        dir=$(cd "$dir" && pwd)
+        project="$dir/project"
+        origin="$dir/origin.git"
+
+        mkdir "$project"
+        # "fixture/." copies the dotfiles too.
+        cp -R "$fixture/." "$project/"
+        git -C "$project" init -q -b main
+        git -C "$project" config user.name "rpir demo"
+        git -C "$project" config user.email "demo@example.invalid"
+        # A global commit.gpgsign would otherwise fail the commit where no key is set up.
+        git -C "$project" config commit.gpgsign false
+        git -C "$project" add -A
+        git -C "$project" commit -q -m "demo: initial"
+
+        git init -q --bare "$origin"
+        git -C "$project" remote add origin "$origin"
+
+        echo "Demo project: $project"
+        echo "Command: claude --plugin-dir \"$repo\" \"/kentra-rpir:implement $change\""
+
+        if [ "$print_only" -eq 0 ]; then
+          cd "$project"
+          exec claude --plugin-dir "$repo" "/kentra-rpir:implement $change"
+        fi
+        ```
+      - |
+        [ ] Write `tests/demo.test.sh`, in the `check` helper style of
+        `tests/assemble-plan.test.sh`. It normalises `$tmp` with `cd && pwd` exactly
+        as run-demo.sh normalises its `dir`, so the printed path and the expected one
+        agree on macOS (`/var` vs `/private/var`). The output is captured with `$(...)`
+        because run-demo.sh refuses a non-empty directory, so no file may go in `$tmp`
+        first:
+
+        ```sh
+        #!/bin/sh
+        # Tests for tests/demo/run-demo.sh --print-only. POSIX sh; run from the repo root.
+        set -u
+        here=$(cd "$(dirname "$0")/.." && pwd)
+        fails=0
+        check() { # check <description> <command...>
+          desc=$1; shift
+          if "$@"; then echo "ok   - $desc"; else echo "FAIL - $desc"; fails=$((fails + 1)); fi
+        }
+
+        tmp=$(mktemp -d "${TMPDIR:-/tmp}/rpir-demo-test.XXXXXX")
+        trap 'rm -rf "$tmp"' EXIT
+        tmp=$(cd "$tmp" && pwd)
+        project="$tmp/project"
+        plan="$project/docs/changes/2026-10-16-demo-diamond/plan.yaml"
+
+        out=$(sh "$here/tests/demo/run-demo.sh" "$tmp" --print-only 2>&1)
+        check "run-demo.sh exits 0" test $? -eq 0
+        check "prints the project path" sh -c 'printf "%s\n" "$1" | grep -qF "Demo project: $2"' _ "$out" "$project"
+        check "prints the claude command" sh -c 'printf "%s\n" "$1" | grep -qF "claude --plugin-dir \"$2\" \"/kentra-rpir:implement docs/changes/2026-10-16-demo-diamond\""' _ "$out" "$here"
+
+        if command -v milestoned-plan-dag >/dev/null 2>&1; then
+          check "the plan validates" milestoned-plan-dag validate "$plan"
+        else
+          echo "skip - plan validation: milestoned-plan-dag not on PATH"
+        fi
+        check "clean working tree" test -z "$(git -C "$project" status --porcelain)"
+        check "one commit" test "$(git -C "$project" rev-list --count HEAD)" = 1
+        check "origin is the bare repo" test "$(git -C "$project" remote get-url origin)" = "$tmp/origin.git"
+        check "sh check.sh prints ok" test "$(cd "$project" && sh check.sh)" = ok
+
+        # Spec requirement 15: the fixture's contents.
+        spec="$project/docs/changes/2026-10-16-demo-diamond/spec.md"
+        cfg="$project/.kentra-rpir.yaml"
+        check "spec is status: planned" grep -qx 'status: planned' "$spec"
+        check "Haiku implementer" grep -qF 'implementer: { agent: "kentra-rpir:implementer", model: haiku }' "$cfg"
+        check "Haiku verifier" grep -qF 'model: haiku }' "$cfg"
+        check "no pull request" grep -qF 'openPullRequest: false' "$cfg"
+        check "four milestones" test "$(grep -c '^  - number:' "$plan")" = 4
+        check "two depend on alpha" test "$(grep -c 'depends-on: \[alpha\]' "$plan")" = 2
+        check "delta joins beta and gamma" grep -qF 'depends-on: [beta, gamma]' "$plan"
+
+        # With no directory, a new temporary one is made.
+        dout=$(sh "$here/tests/demo/run-demo.sh" --print-only 2>&1)
+        dproj=$(printf '%s\n' "$dout" | sed -n 's/^Demo project: //p')
+        check "default dir holds a project" test -d "$dproj/.git"
+        [ -n "$dproj" ] && rm -rf "$(dirname "$dproj")"
+
+        [ "$fails" -eq 0 ] || { echo "demo.test.sh: $fails check(s) failed"; exit 1; }
+        echo "demo.test.sh: ok"
+        ```
+      - |
+        [ ] Run `sh tests/demo.test.sh` from the repo root. Expected: sixteen `ok   -`
+        lines (the validation one is a `skip -` line when `milestoned-plan-dag` is not
+        on PATH; when it is, the tool also prints its own `<path> is valid`), then
+        `demo.test.sh: ok`, exit 0.
+      - |
+        [ ] Edit `tests/run.sh`: add the line `sh tests/demo.test.sh` directly after
+        `sh tests/assemble-plan.test.sh`, so the block reads:
+
+        ```sh
+        sh tests/sessions.test.sh
+        sh tests/planning-log.test.sh
+        sh tests/commit-change.test.sh
+        sh tests/assemble-plan.test.sh
+        sh tests/demo.test.sh
+        node tests/check-workflows.mjs
+        sh tests/check-templates.sh
+        ```
+      - |
+        [ ] Run `sh tests/run.sh` from the repo root. Expected: exit 0, with
+        `demo.test.sh: ok` in the output. `git status --porcelain` lists only this
+        milestone's paths (`tests/demo/`, `tests/demo.test.sh`, `tests/run.sh`).
+        Commit them.
+      - |
+        [ ] The human demo-run check lives in M4 (it needs M1 and M2's statuses);
+        nothing to do here. For reference only:
+        It spends model tokens and needs a terminal (the spec rules out a CI run). The
+        verifier reports it PENDING with these instructions: in a terminal of 144+
+        columns with the fullscreen layout, run `sh tests/demo/run-demo.sh` from the
+        integrated branch, answer the implement skill's confirmation prompt(s)
+        (premise PL1: at most one, the change folder; the orchestrator model is the
+        default, opus), and watch the pane until
+        the run ends.
+  - number: 4
+    slug: readme
+    goal: "The README describes the new statuses, colours, idle header and the demo"
+    description: |
+      Spec requirement 18, and keeps the README's "Watching an implement run"
+      section true after M2. Edit only that section of `README.md`:
+      - the status list in the "Each box" bullet becomes the eleven statuses,
+        with one sentence saying which mean a subagent is running
+        (implementing, verifying, fixing) and which wait for the orchestrator
+        (implemented · awaiting verify, verified · awaiting verdict,
+        passed · awaiting merge, failed · awaiting fix), and that `stuck`
+        means an implementer reported BLOCKED or NEEDS_CONTEXT;
+      - one sentence on colours: boxes with a running subagent, or that are
+        implemented or verified, are light blue, passed and merged green, not-yet-ready grey, failed
+        orange (the theme's warning colour), stuck red;
+      - the header bullet adds that it ends `· idle` when no subagent runs and
+        `· done` once every milestone is merged, and the band example and
+        sentence say it lists hand-off milestones and ends `· idle`;
+      - a new paragraph **Trying it.** naming `sh tests/demo/run-demo.sh`: it
+        builds a throwaway git repo with a four-milestone diamond plan and
+        Haiku implementers and verifiers, then starts
+        `/kentra-rpir:implement` with this checkout's plugin
+        (`claude --plugin-dir`); `--print-only` builds the repo and prints the
+        command without starting Claude Code; the run spends model tokens.
+      Read `hooks/layout.ts` (`STATUS_LABEL`, `bandLine`) and
+      `tests/demo/run-demo.sh` for the exact strings.
+
+      **Decisions made here.**
+      - Documentation only: no code, test or `plugin.json` change. No test
+        reads `README.md` (`tests/check-templates.sh` and
+        `tests/check-workflows.mjs` do not touch it), so the standard check
+        only proves nothing else broke; the human criterion is the real gate.
+      - The colours become their own bullet after "Each box", so the box
+        bullet stays readable. Ready boxes are named too (the theme's default
+        text colour), so every one of the eleven statuses has a colour.
+      - The "Each box" bullet also says the timer counts only while a subagent
+        runs (spec requirement 10), since a box that stops counting is the
+        visible change a reader will notice.
+      - **Trying it.** goes after **Opening and closing.**, because it
+        refers to the 144-column fullscreen rule that paragraph explains.
+      - Every quoted string is copied from the merged code of M2
+        (`STATUS_LABEL`, `headerLine`, `bandLine` in `hooks/layout.ts`) and
+        M3 (`tests/demo/run-demo.sh`). The text in the steps below is written
+        from the plan's description of those milestones; where the code
+        differs, the code wins and the README follows it.
+    deliverables: |
+      - `README.md` — the "Watching an implement run" section only: the
+        "Each box" and "The pane header" bullets rewritten, a new
+        "Colours" bullet, the band paragraph rewritten, and a new
+        **Trying it.** paragraph after **Opening and closing.**. Nothing
+        outside the section changes.
+    contract:
+      check: sh tests/run.sh
+      criteria:
+        - name: "human: README section"
+          given: "README.md's \"Watching an implement run\" section"
+          when: "the person reads it"
+          then: "it names the eleven statuses, the colours, the idle/done header, the band, and how to run the demo, and every string matches what the pane draws"
+        - name: "human: demo run ends merged"
+          given: "`sh tests/demo/run-demo.sh` from the integrated branch, in a terminal of 144+ columns with the fullscreen layout"
+          when: "the person lets the implement run finish (answering its confirmation prompts)"
+          then: "the pane opens on the first dispatch, boxes move through implementing, implemented, verifying, passed and merged, and the run ends with all four boxes merged and the header reading `· done` (spec P3–P5)"
+      paths:
+        - README.md
+    depends-on:
+      - presentation
+      - demo
+    steps:
+      - |
+        [ ] Read the strings the README quotes, from the code M2 and M3 merged:
+
+        ```sh
+        grep -n -A14 'export const STATUS_LABEL' hooks/layout.ts
+        grep -n -A30 'export function headerLine' hooks/layout.ts
+        grep -n -A30 'export function bandLine' hooks/layout.ts
+        grep -n -B2 -A2 'plugin-dir\|print-only\|project' tests/demo/run-demo.sh
+        ```
+
+        Expected: `STATUS_LABEL` maps `implemented` → `implemented · awaiting verify`,
+        `verified` → `verified · awaiting verdict`, `passed` →
+        `passed · awaiting merge`, `failed` → `failed · awaiting fix`, and every
+        other status to its own name; the header ends `· idle` / `· done` after
+        the elapsed time; the band joins `rpir: <n> merged` and `M<n> <status>`
+        parts with ` · ` and appends `idle` when nothing runs; `run-demo.sh`
+        takes an optional `<dir>` and `--print-only`, puts the project in
+        `<dir>/project` and runs `claude --plugin-dir ...
+        "/kentra-rpir:implement docs/changes/2026-10-16-demo-diamond"`.
+        If any string differs, use the code's string in the next steps.
+      - |
+        [ ] In `README.md`, replace the "Each box" and "The pane header"
+        bullets and the band paragraph. Find this text (lines 66–76 today):
+
+        ```markdown
+        - **Each box** shows `M<n> <slug>`, the goal, the status (waiting,
+          ready, implementing, verifying, fixing, passed, merged or stuck),
+          `impl <time> · verify <time>`, the attempts and verify rounds when
+          there is more than one, the wall-clock time once merged, and the
+          tool call the milestone's subagent is running right now.
+        - **The pane header** shows the change's title, a count per status
+          and the run's elapsed time.
+
+        While a run is tracked, a one-line band above the prompt summarises
+        it (for example `rpir: 2 merged · M3 verifying · M4 implementing`),
+        so you can follow the run in a terminal too narrow for the pane.
+        ```
+
+        and replace it with:
+
+        ```markdown
+        - **Each box** shows `M<n> <slug>`, the goal, the status,
+          `impl <time> · verify <time>`, the attempts and verify rounds when
+          there is more than one, the wall-clock time once merged, and the
+          tool call the milestone's subagent is running right now. The
+          status is one of waiting, ready, implementing, implemented,
+          verifying, verified, failed, fixing, passed, merged or stuck.
+          `implementing`, `verifying` and `fixing` mean a subagent of the
+          milestone is running, and only then do the times count. Four
+          statuses mean the milestone waits for the orchestrator, and the box
+          says what for: `implemented · awaiting verify`,
+          `verified · awaiting verdict`, `passed · awaiting merge` and
+          `failed · awaiting fix`. `stuck` means the implementer reported
+          `BLOCKED` or `NEEDS_CONTEXT`, and a person needs to look.
+        - **Colours.** Boxes with a running subagent, or that are implemented
+          or verified, are light blue, passed and merged boxes are green,
+          waiting boxes (not yet ready) are grey, ready boxes take the
+          theme's default text colour, a failed box is orange (the theme's
+          warning colour) and a stuck box is red.
+        - **The pane header** shows the change's title, a count per status
+          and the run's elapsed time. When no subagent is running it shows
+          the time up to the last agent's end followed by `· idle`, and once
+          every milestone is merged it ends `· done` instead.
+
+        While a run is tracked, a one-line band above the prompt summarises
+        it: the merged count, then each milestone whose subagent is running
+        or that waits for the orchestrator, with its status, ending with
+        `· idle` when nothing runs (for example
+        `rpir: 1 merged · M2 verifying · M3 implemented`, or
+        `rpir: 1 merged · M2 implemented · idle`). You can follow the run
+        there in a terminal too narrow for the pane.
+        ```
+
+        Use the Edit tool with the exact old text above (the README wraps
+        at about 70 columns; keep that wrapping).
+      - |
+        [ ] Add the **Trying it.** paragraph right after the
+        **Opening and closing.** paragraph (which ends "reopen it and it
+        shows the current state.") and before **Keys in the pane.**:
+
+        ```markdown
+        **Trying it.** `sh tests/demo/run-demo.sh` from this checkout builds
+        a throwaway git repository with a four-milestone diamond plan (M1,
+        then M2 and M3 in parallel, then M4), Haiku implementers and
+        verifiers, and a bare `origin` beside it, in a new temporary
+        directory (or in `<dir>` with `sh tests/demo/run-demo.sh <dir>`; the
+        repository goes in `<dir>/project`). It then starts
+        `/kentra-rpir:implement` there with this checkout's plugin
+        (`claude --plugin-dir`), so the pane runs this branch's code. Run it
+        in the fullscreen layout at 144 columns or wider and answer the
+        skill's confirmation prompt: the boxes move through implementing,
+        implemented, verifying, passed and merged, and the header ends
+        `· done`. `--print-only` builds the repository and prints its path
+        and the command without starting Claude Code. The run spends model
+        tokens.
+        ```
+
+        The claim that this checkout's plugin wins over an installed
+        kentra-rpir rests on spec premises P3 and P4 (unverified); the
+        "answer the skill's confirmation prompt" wording rests on PL1
+        (unverified). If the human check of M3's demo shows otherwise
+        (for example more than one prompt), reword those clauses to what
+        the run does.
+      - |
+        [ ] Check that nothing outside the section changed and the quoted
+        strings are present:
+
+        ```sh
+        git diff --stat -- README.md
+        git diff -U0 -- README.md | grep '^@@'
+        grep -c 'awaiting verify\|awaiting verdict\|awaiting merge\|awaiting fix' README.md
+        grep -n 'sh tests/demo/run-demo.sh\|--print-only\|· idle\|· done' README.md
+        ```
+
+        Expected: only `README.md` changed, every hunk lies between the
+        `## Watching an implement run` heading and the next `## ` heading;
+        the `grep -c` prints at least 1 (the four labels sit on a few lines);
+        the last grep lists the demo command, `--print-only`, `· idle` and
+        `· done`.
+      - |
+        [ ] Run the standard check:
+
+        ```sh
+        sh tests/run.sh
+        ```
+
+        Expected: exits 0, ending with `demo.test.sh: ok` among the script
+        tests and the `claude plugin test` results all passing (or
+        `skipping mod checks: claude not on PATH`). This milestone changes no
+        code, so a failure here comes from M2 or M3's merge: report it rather
+        than editing outside `README.md`.
+      - |
+        [ ] Leave the criterion `human: demo run ends merged` PENDING for the
+        user: it spends model tokens and needs a terminal (the spec rules out
+        a CI run). The verifier reports it PENDING with these instructions:
+        in a terminal of 144+ columns with the fullscreen layout, run
+        `sh tests/demo/run-demo.sh` from the integrated branch, answer the
+        implement skill's confirmation prompt (premise PL1), and watch the
+        pane until the run ends with every box merged and the header reading
+        `· done`.
+# premises:
+#   PL1 | normal | unverified | — | the implement skill, started as `/kentra-rpir:implement <folder>` with a sonnet session and `impl-orchestrator: sonnet`, asks at most one confirmation (the change folder) before dispatching
+#   PL2 | normal | unverified | — | `git init -b main` is supported by the git on the user's machine (git ≥ 2.28)
+#   PL3 | normal | unverified | — | the implement skill runs on a change folder holding only spec.md and plan.yaml, with the fixture .gitignore
+#   PL4 | normal | unverified | — | `warning` is a valid theme colour key for a Text `color` prop
+#   PL5 | normal | unverified | — | in the wiring test kit, an implementer that ended with STATUS: DONE leaves no agent running, so runClock reads idle
+#   PL6 | normal | unverified | — | an implementer whose turn ended while it waits on its own background command reads `implemented` until it wakes (accepted under the spec's non-goal on idling subagents)
+#   PL7 | normal | unverified | — | a hooks test can import { styleOf } from '../register' under `claude plugin test` without load-time side effects
+#   PL8 | normal | unverified | — | ui.find({ type: 'Text', text: /regex/ }) matches the pane header Text by its full string
+#   PL9 | normal | unverified | — | a partial `.kentra-rpir.yaml` (roles and implement maps with only some keys) is merged with the template defaults key by key
+#   PL10 | normal | unverified | — | no test in tests/run.sh reads README.md
+#   PL11 | normal | unverified | — | `claude plugin validate .` and the other checks in tests/run.sh ignore the nested fixture under tests/demo/fixture
+# P3 (spec) re-checked by plan review: verified — spike: research/spikes/plan-review-claude-plugin-dir-repo-model-sonnet-kentra-rpir/ (first-run dialogs in an unseen folder must be accepted before the prompt runs)
+# writerGaps:
+#   P1: demo.test.sh checks the fixture's contents (spec req 15) and the default temp dir; `--model sonnet` dropped so the command is spec req 16's (decision under the user's delegation; orchestrator model left at its default)
+#   P2@demo: human demo-run criterion moved from M3 to M4, which depends on M2 and M3
+#   P6@readme: colour bullet no longer calls passed/failed boxes light blue
+#   P7@presentation: styleOf criterion states the mapping; human colour criterion matches spec req 13
+#   P8@demo, P8@readme: plan-level plugin-authoring rule moved to M1 and M2 only

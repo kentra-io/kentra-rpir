@@ -1,7 +1,7 @@
 ---
 title: Pane statuses that tell running from waiting, and an end-to-end demo
 type: bug
-status: planned
+status: implementing
 tier: light
 issue:
 planningLog: planning-log.jsonl

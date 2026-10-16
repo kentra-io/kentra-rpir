@@ -1,7 +1,7 @@
 export type Role = 'impl' | 'verify'
 export type Status =
-  | 'waiting' | 'ready' | 'implementing' | 'verifying'
-  | 'fixing' | 'passed' | 'merged' | 'stuck'
+  | 'waiting' | 'ready' | 'implementing' | 'implemented' | 'verifying' | 'verified'
+  | 'failed' | 'fixing' | 'passed' | 'merged' | 'stuck'
 export type Outcome =
   | 'PASS' | 'FAIL' | 'DONE' | 'DONE_WITH_CONCERNS' | 'NEEDS_CONTEXT' | 'BLOCKED'
 
@@ -60,6 +60,11 @@ export type MilestoneView = {
   runningAgentId: string | null
   lastAgentId: string | null
 }
+
+/** The run's clock for the pane header and band: `running` while any
+ *  agent runs (elapsed counts to now); otherwise `done` when every plan
+ *  milestone is merged, else `idle` (elapsed stops at the last agent's end). */
+export type RunClock = { phase: 'running' | 'idle' | 'done'; elapsedMs: number }
 
 /** One row of the drawn graph: gutter (lane characters) + body. */
 export type Row = {

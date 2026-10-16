@@ -1,11 +1,12 @@
 // The model of an implement run: pure functions over the shared types.
 // No `$`, no clock — every event carries `at`, every view takes `now`.
 import type {
-  AgentRun, MilestoneRun, MilestoneView, Outcome, Role, RunState, Status, TrackerEvent,
+  AgentRun, MilestoneRun, MilestoneView, Outcome, Role, RunClock, RunState, Status, TrackerEvent,
 } from '../types'
 
 const STATUSES: readonly Status[] = [
-  'waiting', 'ready', 'implementing', 'verifying', 'fixing', 'passed', 'merged', 'stuck',
+  'waiting', 'ready', 'implementing', 'implemented', 'verifying', 'verified',
+  'failed', 'fixing', 'passed', 'merged', 'stuck',
 ]
 
 // Pinned by tests/check-templates.sh against skills/implement/*-prompt.md line 1.
@@ -135,13 +136,14 @@ function statusOf(state: RunState, slug: string, ms: MilestoneRun | undefined, a
   }
   const last = agents[agents.length - 1]
   if (last !== undefined) {
+    // Nothing of this milestone runs: it waits on the orchestrator.
     if (last.role === 'verify') {
-      if (last.outcome === 'PASS') return 'passed'
-      if (last.outcome === 'FAIL') return 'stuck'
-      return 'verifying' // finished with no verdict read yet: the Agent result is still to come
+      if (last.outcome === 'PASS') return 'passed'   // awaiting merge
+      if (last.outcome === 'FAIL') return 'failed'   // awaiting a fix dispatch
+      return 'verified'                              // awaiting the verdict read
     }
     if (last.outcome === 'BLOCKED' || last.outcome === 'NEEDS_CONTEXT') return 'stuck'
-    return 'implementing'
+    return 'implemented'                             // DONE, DONE_WITH_CONCERNS or none: awaiting verify
   }
   const pm = state.plan?.milestones.find((m) => m.slug === slug)
   const deps = pm?.dependsOn ?? []
@@ -179,4 +181,20 @@ export function countByStatus(state: RunState, now: number): Record<Status, numb
   const slugs = state.plan !== null ? state.plan.milestones.map((m) => m.slug) : Object.keys(state.milestones)
   for (const slug of slugs) counts[viewOf(state, slug, now).status] += 1
   return counts
+}
+
+/** The run's clock at `now`: `running` (elapsed to now) while any agent runs;
+ *  otherwise `done` when the plan has milestones and every one is merged, else
+ *  `idle` — both with elapsed from the run's start to the last agent's end. */
+export function runClock(state: RunState, now: number): RunClock {
+  const agents = Object.values(state.agents)
+  if (agents.some((a) => a.endedAt === null)) {
+    return { phase: 'running', elapsedMs: Math.max(0, now - state.startedAt) }
+  }
+  const lastEnd = agents.reduce((t, a) => Math.max(t, a.endedAt ?? 0), -Infinity)
+  const elapsedMs = agents.length === 0 ? 0 : Math.max(0, lastEnd - state.startedAt)
+  const pms = state.plan?.milestones ?? []
+  const allMerged = pms.length > 0 &&
+    pms.every((m) => (state.milestones[m.slug]?.mergedAt ?? null) !== null)
+  return { phase: allMerged ? 'done' : 'idle', elapsedMs }
 }

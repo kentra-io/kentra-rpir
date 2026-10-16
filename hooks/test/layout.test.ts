@@ -157,7 +157,8 @@ test('formatDuration cut headerLine bandLine', () => {
   expect(cut('two\nlines', 20)).toBe('two lines')
 
   const counts: Record<Status, number> = {
-    waiting: 3, ready: 0, implementing: 1, verifying: 1, fixing: 0, passed: 0, merged: 2, stuck: 0,
+    waiting: 3, ready: 0, implementing: 1, implemented: 0, verifying: 1, verified: 0,
+    failed: 0, fixing: 0, passed: 0, merged: 2, stuck: 0,
   }
   const title = 'A very long change title that would never fit beside the counts in a narrow pane'
   const header = headerLine(title, counts, 125_000, 80)

@@ -47,6 +47,8 @@ export type TranscriptToolUse = {
   text?: string
   isError?: true
 }
+/** What an Agent call says of its task: the fields a milestone dispatch is recognised by. */
+export type DispatchCall = { prompt: string; description?: string; subagentType?: string }
 /** One transcript row ($.session.messages()): the source the tracker reconciles against. */
 export type TranscriptRow = { role: 'user' | 'assistant'; text: string; toolUses: TranscriptToolUse[] }
 /** What the engine says of an agent's loop right now ($.agent.list()): running or ended. */
@@ -54,7 +56,7 @@ export type LiveAgents = Record<string, 'running' | 'ended'>
 
 /** Inputs the tracker reduces; the wiring builds them from engine events. */
 export type TrackerEvent =
-  | { kind: 'spawn'; agentId: string; toolUseId: string | null; prompt: string; at: number }
+  | { kind: 'spawn'; agentId: string; toolUseId: string | null; prompt: string; description?: string; subagentType?: string; at: number }
   | { kind: 'tool'; agentId: string; summary: string; at: number }
   | { kind: 'resume'; agentId: string; at: number }
   | { kind: 'agentDone'; agentId: string | null; toolUseId: string | null; resultText: string | null; at: number }

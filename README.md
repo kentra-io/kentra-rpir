@@ -151,7 +151,13 @@ background hand-off, a resume) shows the run where it is, and the
 orchestrator's every turn end checks the pane against the transcript.
 Timings come from the last session's record when there is one; a box
 the pane first learns of from the transcript counts its time from
-then. A run in another terminal is not shown.
+then. The pane finds the plan through the `.kentra-rpir/sessions.map`
+that registers the session, also when the session started in a folder
+above the project (a folder of several repositories). It recognises a
+dispatch by the prompt's first line; when the prompt points to a file
+instead, by that file's name (`m<n>-<slug>.impl.<k>.md`,
+`m<n>-<slug>.verify.<k>.md`) or, for an implementer or verifier agent,
+by its description (`Implement M<n> <slug>`, `Verify M<n> <slug>`). A run in another terminal is not shown.
 
 ## History
 

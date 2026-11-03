@@ -101,9 +101,11 @@ function setup(on: On, files: Record<string, string | undefined>): Kit {
   return kit
 }
 
-async function spawn($: Engine, prompt: string, toolUseId: string): Promise<string> {
+async function spawn(
+  $: Engine, prompt: string, toolUseId: string, description = 'milestone', subagentType = 'general-purpose',
+): Promise<string> {
   const result = await $.agent.spawn({
-    tool_use_id: toolUseId, prompt, description: 'milestone', subagentType: 'general-purpose',
+    tool_use_id: toolUseId, prompt, description, subagentType,
     provider: { plugin: 'engine', tier: 'core' }, parentModel: 'test-model', background: false, fork: false,
   } as never)
   return (result as { agentId: string }).agentId
@@ -142,6 +144,18 @@ test('milestone dispatch starts tracking and opens the pane', async ($, on) => {
   expect(agent.lastTool).toBeNull()
   expect(agent.endedAt).not.toBeNull()
   expect(agent.outcome).toBe('DONE')
+  expect(kit.opened).toContain(PANE)
+})
+
+test('a dispatch that points to its prompt file is tracked by its description', async ($, on) => {
+  const kit = setup(on, filesWithPlan(3))
+  const pointer = 'Your dispatch prompt from the kentra-rpir orchestrator is in this file:\n\n' +
+    '/scratch/prompts/m2-b.verify.1.md\n\nRead all of it before you start.'
+  const id = await spawn($, pointer, 'tu-1', 'Verify M2 b', 'kentra-rpir:verifier')
+  const run = runOf(kit)!
+  expect(run.milestones['b']!.agents).toEqual([id])
+  expect(run.agents[id]!.role).toBe('verify')
+  expect(run.plan?.title).toBe('Demo change')
   expect(kit.opened).toContain(PANE)
 })
 
@@ -324,8 +338,11 @@ const HISTORY = [
   mergeRow(1, 'a'),
   dispatchRow(implPrompt(2, 'b'), 'x3'),
 ]
-function transcript(on: On, rows: unknown[], running: string[] = []): void {
-  on('session.messages', () => ({ value: rows as never }))
+function transcript(on: On, rows: unknown[], running: string[] = [], agentRows: Record<string, unknown[]> = {}): void {
+  on('session.messages', (_$, e) => {
+    const agentId = (e as { agentId?: string }).agentId
+    return { value: (agentId === undefined ? rows : agentRows[agentId] ?? []) as never }
+  })
   on('agent.list', () => ({
     value: running.map(id => ({ id, status: 'running', description: 'm', type: 'general-purpose' })) as never,
   }))
@@ -394,4 +411,25 @@ test('a session with no dispatches starts no run', async ($, on) => {
   await $.session.start(START as never)
   expect(runOf(kit)).toBeNull()
   expect(kit.opened).toEqual([])
+})
+
+test("a hand-back the main transcript leaves out is read from the agent's own transcript", async ($, on) => {
+  const kit = setup(on, filesWithPlan(3))
+  // As the engine gives them: the dispatches and the merge, no hand-backs.
+  transcript(on, [
+    dispatchRow(implPrompt(1, 'a'), 'x1'),
+    dispatchRow(verifyPrompt(1, 'a'), 'x2'),
+    dispatchRow(implPrompt(2, 'b'), 'x3'),
+  ], ['x3'], {
+    x1: [{ role: 'assistant', text: 'Done.\n\nSTATUS: DONE', toolUses: [] }],
+    x2: [{ role: 'assistant', text: '', toolUses: [{ tool: 'SubagentHandback', input: { report: 'VERDICT: FAIL' } }] }],
+    x3: [{ role: 'assistant', text: 'STATUS: DONE', toolUses: [] }],
+  })
+  await $.command.run({ ...RUN_GRAPH } as never)
+  const run = runOf(kit)!
+  expect(run.agents['x1']!.outcome).toBe('DONE')
+  expect(run.agents['x2']!.outcome).toBe('FAIL')
+  expect(run.agents['x2']!.endedAt).not.toBeNull()
+  // x3 still runs: the engine says so, whatever its transcript holds.
+  expect(run.agents['x3']!.endedAt).toBeNull()
 })

@@ -70,7 +70,7 @@ started:
 3. Dispatch with the Agent tool:
    - `subagent_type`: `roles.implementer.agent`;
    - `model`: `roles.implementer.model`;
-   - the filled prompt.
+   - `description` and `prompt`: as "Dispatch prompts" below says.
 
    Dispatch every ready milestone in the same message so they run in parallel.
 
@@ -89,7 +89,8 @@ Dispatch a **new** verifier for every finished milestone, never reusing the
 implementer's context:
 
 - `subagent_type`: `roles.verifier.agent`, `model`: `roles.verifier.model`;
-- the prompt: `verifier-prompt.md` filled, with `title` = `spec.md`'s title,
+- `description` and `prompt`: as "Dispatch prompts" below says, with
+  `verifier-prompt.md` filled: `title` = `spec.md`'s title,
   `branch` = the milestone branch created in step 2.1, `worktree` = the
   milestone worktree's absolute path, and `base` = the integration-branch
   commit the milestone branched from.
@@ -118,6 +119,22 @@ On PASS:
    checks the merge against the current worktree's HEAD, which must be the
    integration branch.
 5. Dispatch every milestone this one unblocked (step 2).
+
+## Dispatch prompts
+
+Every implementer and verifier dispatch, first or re-dispatch, from any step,
+sets:
+
+- `description`: `Implement M<n> <mslug>` for an implementer,
+  `Verify M<n> <mslug>` for a verifier;
+- `prompt`: the filled template, its first line kept verbatim as the
+  prompt's first line.
+
+The milestone graph pane maps each dispatch to its milestone by that first line
+and the `description`. A prompt too long to send whole goes in a file: the
+Agent `prompt` is then the filled template's first line and its `Work only in`
+paragraph, with the worktree's absolute path, followed by the file's absolute
+path and an instruction to read all of it.
 
 ## Decide or ask
 
@@ -184,3 +201,4 @@ place. Then end with one line:
 | "Same prompt again, it might work this time" | Each re-dispatch carries new guidance or context. |
 | "The spec is slightly wrong; I'll fix it in the plan" | Anything that changes the spec goes to the user. |
 | "I'll leave the FAIL out of the report" | The retro reads the transcripts. Report it. |
+| "The prompt is long; I'll send just the path to its file" | The Agent prompt starts with the template's first line and `Work only in` paragraph; the path follows them. |

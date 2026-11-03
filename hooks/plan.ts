@@ -46,6 +46,44 @@ export function newestImplementFolder(sessionsMap: string): string | null {
   return found
 }
 
+// A backticked path is taken whole (the templates put the worktree in
+// backticks, so a path with spaces survives); elsewhere a path ends at
+// whitespace or punctuation.
+const QUOTED_PATH = /`(\/[^`\n]+)`/g
+const ABSOLUTE_PATH = /(?:^|[\s'"(=*[:>{])(\/[^\s`'"<>()|;&,\]]+)/g
+const FILE_NAME = /\.[A-Za-z0-9]{1,6}$/
+const MAX_CANDIDATES = 64
+
+/** The directories a project root may be, most likely first: each absolute
+ *  path in `hints` (the session's directory, the dispatch prompts' worktree
+ *  paths, newest first) and every directory above it, then the session's
+ *  root, then `children` (the root's subdirectories). A session started above
+ *  the project (a folder of several repositories) reaches the project only
+ *  through the hints or the children: a shell `cd` does not move its root.
+ *  Top-level folders (`/Users`) and file names are never candidates. */
+export function candidateRoots(root: string, hints: readonly string[], children: readonly string[] = []): string[] {
+  const out: string[] = []
+  // The cap bounds the hints only: the root and its children always count.
+  const add = (dir: string, capped = true) => {
+    const d = dir.replace(/\/+$/, '')
+    if (d !== '' && !out.includes(d) && (!capped || out.length < MAX_CANDIDATES)) out.push(d)
+  }
+  const addPath = (path: string) => {
+    const parts = path.replace(/[.:*!?]+$/, '').split('/').filter((x) => x !== '')
+    const leaf = parts[parts.length - 1] ?? ''
+    for (let i = FILE_NAME.test(leaf) ? parts.length - 1 : parts.length; i >= 2; i--) {
+      add(`/${parts.slice(0, i).join('/')}`)
+    }
+  }
+  for (const hint of hints) {
+    for (const m of hint.matchAll(QUOTED_PATH)) addPath(m[1] ?? '')
+    for (const m of hint.matchAll(ABSOLUTE_PATH)) addPath(m[1] ?? '')
+  }
+  add(root, false)
+  for (const child of children) add(joinPath(root, child), false)
+  return out
+}
+
 export function parseSpecTitle(specText: string, changeFolder: string): string {
   const lines = specText.split(/\r?\n/)
   if (lines[0]?.trim() === '---') {
@@ -93,34 +131,60 @@ export function parsePlanYaml(text: string, title: string, changeFolder: string)
   return { title, changeFolder, milestones }
 }
 
-export async function loadPlan(
+/** The project whose sessions.map registers this session's implement run,
+ *  else the first candidate with any implement run, else null. */
+export async function findProject(
   $: EngineInterface,
   sessionId: string,
-): Promise<{ plan: PlanGraph | null; error: string | null }> {
-  try {
-    const root = await $.session.root()
+  candidates: readonly string[],
+): Promise<{ root: string; folder: string } | null> {
+  let fallback: { root: string; folder: string } | null = null
+  for (const root of candidates) {
     let map: string
     try {
       map = await $.fs.read(joinPath(root, SESSIONS_MAP))
     } catch {
-      return { plan: null, error: `cannot read ${SESSIONS_MAP}` }
+      continue
     }
+    const own = findChangeFolder(map, sessionId)
+    if (own !== null) return { root, folder: own }
     // A session continued under a new id is in the map only once the
     // orchestrator registers it again: fall back to the newest implement run.
-    const folder = findChangeFolder(map, sessionId) ?? newestImplementFolder(map)
-    if (folder === null) {
-      return { plan: null, error: `no implement entry for this session in ${SESSIONS_MAP}` }
+    const newest = newestImplementFolder(map)
+    if (fallback === null && newest !== null) fallback = { root, folder: newest }
+  }
+  return fallback
+}
+
+export async function loadPlan(
+  $: EngineInterface,
+  sessionId: string,
+  hints: readonly string[] = [],
+): Promise<{ plan: PlanGraph | null; error: string | null }> {
+  try {
+    const root = await $.session.root()
+    let children: string[] = []
+    try {
+      children = (await $.fs.list(root)).filter((e) => e.kind === 'dir' && !e.name.startsWith('.')).map((e) => e.name)
+    } catch {
+      // no listing: the root and the hints only
     }
+    const candidates = candidateRoots(root, hints, children)
+    const found = await findProject($, sessionId, candidates)
+    if (found === null) {
+      return { plan: null, error: `no implement run in ${SESSIONS_MAP} under ${candidates[0]} or the dispatches' paths` }
+    }
+    const { root: project, folder } = found
     const planPath = `${folder.replace(/\/+$/, '')}/plan.yaml`
     let planText: string
     try {
-      planText = await $.fs.read(joinPath(root, planPath))
+      planText = await $.fs.read(joinPath(project, planPath))
     } catch {
       return { plan: null, error: `cannot read ${planPath}` }
     }
     let title = basename(folder)
     try {
-      title = parseSpecTitle(await $.fs.read(joinPath(root, `${folder.replace(/\/+$/, '')}/spec.md`)), folder)
+      title = parseSpecTitle(await $.fs.read(joinPath(project, `${folder.replace(/\/+$/, '')}/spec.md`)), folder)
     } catch {
       // spec.md is optional: keep the folder's basename as the title.
     }

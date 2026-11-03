@@ -1,8 +1,8 @@
 // The model of an implement run: pure functions over the shared types.
 // No `$`, no clock — every event carries `at`, every view takes `now`.
 import type {
-  AgentRun, LiveAgents, MilestoneRun, MilestoneView, Outcome, Role, RunClock, RunState, Status, TrackerEvent,
-  TranscriptRow,
+  AgentRun, DispatchCall, LiveAgents, MilestoneRun, MilestoneView, Outcome, Role, RunClock, RunState, Status, TrackerEvent,
+  TranscriptRow, TranscriptToolUse,
 } from '../types'
 
 const STATUSES: readonly Status[] = [
@@ -26,6 +26,44 @@ export function parseDispatch(prompt: string): { number: number; slug: string; r
   const m = DISPATCH.exec(line)
   if (m === null) return null
   return { number: Number(m[2]), slug: m[3], role: m[1] === 'implementing' ? 'impl' : 'verify' }
+}
+
+// The fallbacks for a dispatch whose prompt does not start with the template's
+// first line (an orchestrator that sent a pointer to a file, say): the prompt
+// file's name (".../m1-example-milestone.impl.1.md"), then the Agent call's
+// description ("Implement M1 example-milestone"). The description counts only
+// for the process's own agent types, so a helper agent described "Fix M3
+// merge conflict" is no milestone agent.
+const DESCRIPTION = /^\s*(?:[Rr]e-?)?(?:[Ii]mplement|[Ff]ix|[Vv]erify)\w*\s+M(\d+)\b[\s:.·—–-]*`?([a-z0-9]+(?:-[a-z0-9]+)*)`?/
+const PROMPT_FILE = /\bm(\d+)-([a-z0-9]+(?:-[a-z0-9]+)*)\.(impl|verify)\.\d+\.md\b/
+
+/** A milestone dispatch: the prompt's first line (parseDispatch), else the
+ *  prompt file it points to, else, for an implementer or verifier agent type,
+ *  its description. The agent type decides the role when it names one. */
+export function parseDispatchCall(call: DispatchCall): { number: number; slug: string; role: Role } | null {
+  const direct = parseDispatch(call.prompt)
+  if (direct !== null) return direct
+  const type = call.subagentType ?? ''
+  const typed: Role | null = /verifier/.test(type) ? 'verify' : /implementer/.test(type) ? 'impl' : null
+  const f = PROMPT_FILE.exec(call.prompt)
+  if (f !== null) {
+    const [, n, slug = '', tag] = f
+    return { number: Number(n), slug, role: typed ?? (tag === 'verify' ? 'verify' : 'impl') }
+  }
+  if (typed === null) return null
+  const d = DESCRIPTION.exec(call.description ?? '')
+  if (d === null) return null
+  const [, n, slug = ''] = d
+  return { number: Number(n), slug, role: typed }
+}
+
+/** An Agent tool call's input as a DispatchCall. */
+export function callOf(input: Record<string, unknown>): DispatchCall {
+  return {
+    prompt: typeof input.prompt === 'string' ? input.prompt : '',
+    ...(typeof input.description === 'string' ? { description: input.description } : {}),
+    ...(typeof input.subagent_type === 'string' ? { subagentType: input.subagent_type } : {}),
+  }
 }
 
 /** The last `VERDICT: PASS|FAIL` or `STATUS: DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED`
@@ -70,8 +108,13 @@ function withAgent(state: RunState, agent: AgentRun): RunState {
 export function reduce(state: RunState, ev: TrackerEvent): RunState {
   switch (ev.kind) {
     case 'spawn': {
-      const d = parseDispatch(ev.prompt)
-      if (d === null || state.agents[ev.agentId] !== undefined) return state
+      const parsed = parseDispatchCall(ev)
+      if (parsed === null || state.agents[ev.agentId] !== undefined) return state
+      // A reworded description ("Fix M2 build failure") names the milestone by number only.
+      const pm = state.plan?.milestones
+      const d = pm !== undefined && !pm.some((m) => m.slug === parsed.slug)
+        ? { ...parsed, slug: pm.find((m) => m.number === parsed.number)?.slug ?? parsed.slug }
+        : parsed
       const agent: AgentRun = {
         agentId: ev.agentId, toolUseId: ev.toolUseId, number: d.number, slug: d.slug, role: d.role,
         startedAt: ev.at, endedAt: null, lastTool: null, outcome: null,
@@ -116,8 +159,24 @@ export function reduce(state: RunState, ev: TrackerEvent): RunState {
       if (m === undefined) return state
       return { ...state, milestones: { ...state.milestones, [m.slug]: { ...m, mergedAt: ev.at } } }
     }
-    case 'plan':
-      return { ...state, plan: ev.plan, planError: ev.error }
+    case 'plan': {
+      // A milestone tracked under a slug the plan lacks (seen before the plan
+      // loaded) moves to the plan's milestone of its number.
+      let milestones = state.milestones
+      let agents = state.agents
+      for (const m of Object.values(state.milestones)) {
+        const pm = ev.plan?.milestones.find((x) => x.number === m.number)
+        if (pm === undefined || pm.slug === m.slug || ev.plan?.milestones.some((x) => x.slug === m.slug)) continue
+        if (milestones[pm.slug] !== undefined) continue
+        const { [m.slug]: _, ...rest } = milestones
+        milestones = { ...rest, [pm.slug]: { ...m, slug: pm.slug } }
+        for (const id of m.agents) {
+          const a = agents[id]
+          if (a !== undefined) agents = { ...agents, [id]: { ...a, slug: pm.slug } }
+        }
+      }
+      return { ...state, plan: ev.plan, planError: ev.error, milestones, agents }
+    }
   }
 }
 
@@ -209,11 +268,18 @@ const HANDBACK = /<agent-message from="([^"]+)">/g
 const NOTIFICATION = /<task-notification>([\s\S]*?)<\/task-notification>/g
 const TASK_ID = /<task-id>\s*([^<\s]+)\s*<\/task-id>/
 const TASK_DONE = /<status>\s*(completed|failed|killed)\s*<\/status>/
+// A notification an agent sends while its own background work still runs: it is not done.
+// Read from the engine's own <summary> and <note>, never the agent's <result>.
+const TASK_INTERIM = /waiting on its own background work|may be interim/
+const TASK_RESULT = /<result>[\s\S]*?<\/result>/g
+
+function isDispatch(u: TranscriptToolUse): boolean {
+  return u.tool === 'Agent' && parseDispatchCall(callOf(u.input)) !== null
+}
 
 /** True when the transcript holds at least one milestone dispatch. */
 export function hasDispatch(rows: readonly TranscriptRow[]): boolean {
-  return rows.some((r) => r.role === 'assistant' && r.toolUses.some((u) =>
-    u.tool === 'Agent' && typeof u.input.prompt === 'string' && parseDispatch(u.input.prompt) !== null))
+  return rows.some((r) => r.role === 'assistant' && r.toolUses.some(isDispatch))
 }
 
 /** The agent ids of every milestone dispatch in the transcript, in order. */
@@ -222,7 +288,7 @@ export function dispatchedAgentIds(rows: readonly TranscriptRow[]): string[] {
   for (const r of rows) {
     if (r.role !== 'assistant') continue
     for (const u of r.toolUses) {
-      if (u.tool !== 'Agent' || typeof u.input.prompt !== 'string' || parseDispatch(u.input.prompt) === null) continue
+      if (!isDispatch(u)) continue
       const id = u.agentId ?? LAUNCH_ID.exec(u.text ?? '')?.[1]
       if (id !== undefined) ids.push(id)
     }
@@ -264,13 +330,13 @@ export function reconcile(
     if (r.role === 'assistant') {
       for (const u of r.toolUses) {
         if (u.tool === 'Agent') {
-          const prompt = typeof u.input.prompt === 'string' ? u.input.prompt : ''
-          if (parseDispatch(prompt) === null) continue
+          const call = callOf(u.input)
+          if (parseDispatchCall(call) === null) continue
           const id = u.agentId ?? LAUNCH_ID.exec(u.text ?? '')?.[1]
           if (id === undefined) continue
           if (!order.has(id)) order.set(id, order.size)
           if (s.agents[id] === undefined) {
-            s = reduce(s, { kind: 'spawn', agentId: id, toolUseId: null, prompt, at: now })
+            s = reduce(s, { kind: 'spawn', agentId: id, toolUseId: null, ...call, at: now })
           }
           // A foreground call's answer is the report; a background one's is the launch notice.
           if (u.text !== undefined && !LAUNCH_NOTICE.test(u.text) && u.input.run_in_background !== true) {
@@ -287,9 +353,10 @@ export function reconcile(
         s = endAgent(s, m[1], parseOutcome(r.text.slice(m.index, end)), now)
       })
       for (const n of r.text.matchAll(NOTIFICATION)) {
-        const id = TASK_ID.exec(n[1])?.[1]
-        if (id !== undefined && TASK_DONE.test(n[1])) {
-          s = endAgent(s, id, parseOutcome(n[1].replace(/<[^>]*>/g, '\n')), now)
+        const body = n[1] ?? ''
+        const id = TASK_ID.exec(body)?.[1]
+        if (id !== undefined && TASK_DONE.test(body) && !TASK_INTERIM.test(body.replace(TASK_RESULT, ''))) {
+          s = endAgent(s, id, parseOutcome(body.replace(/<[^>]*>/g, '\n')), now)
         }
       }
     }
@@ -311,6 +378,35 @@ export function reconcile(
       milestones[slug] = { ...m, agents: sorted }
     }
     if (moved) s = { ...s, milestones }
+  }
+  return s
+}
+
+/** The report an agent's own transcript ends on: the last STATUS/VERDICT line
+ *  in its assistant text or in the input of its hand-back call, or null. */
+export function outcomeOfAgent(rows: readonly TranscriptRow[]): Outcome | null {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const r = rows[i]
+    if (r === undefined || r.role !== 'assistant') continue
+    const parts = [r.text, ...r.toolUses.map((u) => Object.values(u.input).filter((v) => typeof v === 'string').join('\n'))]
+    const found = parseOutcome(parts.join('\n'))
+    if (found !== null) return found
+  }
+  return null
+}
+
+/** Ends each agent in `reports` with its outcome, unless `live` says it still
+ *  runs. Reports come from the agents' own transcripts: the engine keeps a
+ *  background agent's hand-back out of the main session's messages. */
+export function applyReports(
+  state: RunState,
+  reports: Readonly<Record<string, Outcome>>,
+  now: number,
+  live: LiveAgents = {},
+): RunState {
+  let s = state
+  for (const [id, outcome] of Object.entries(reports)) {
+    if (live[id] !== 'running') s = endAgent(s, id, outcome, now)
   }
   return s
 }

@@ -1,12 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Hook, Register, Timer } from 'claude-code'
 
-import type { LiveAgents, RunState, Status, TrackerEvent, TranscriptRow } from '../types'
+import type { LiveAgents, Outcome, RunState, Status, TrackerEvent, TranscriptRow } from '../types'
 import { bandLine, cut, headerLine, layoutGraph } from './layout'
 import { headerSlugs, isArrowScroll, milestonesOf, nextSelection, toolSummary, viewsOf } from './nav'
 import { loadPlan } from './plan'
 import {
-  countByStatus, dispatchedAgentIds, emptyRun, hasDispatch, parseDispatch, reconcile, reduce, runClock, viewOf,
+  applyReports, callOf, countByStatus, dispatchedAgentIds, emptyRun, hasDispatch, outcomeOfAgent, parseDispatchCall,
+  reconcile, reduce, runClock, viewOf,
 } from './tracker'
 
 const PANE = 'rpir-graph'
@@ -62,7 +63,8 @@ async function liveAgents($: EngineInterface): Promise<LiveAgents> {
   const out: LiveAgents = {}
   try {
     for (const a of await $.agent.list()) {
-      if (a.status === 'running' || a.status === 'pending') out[a.id] = 'running'
+      // 'waiting': its own background work still runs, so it has not reported yet.
+      if (a.status === 'running' || a.status === 'pending' || a.status === 'waiting') out[a.id] = 'running'
       else if (a.status === 'completed' || a.status === 'failed' || a.status === 'killed') out[a.id] = 'ended'
     }
   } catch {
@@ -71,14 +73,56 @@ async function liveAgents($: EngineInterface): Promise<LiveAgents> {
   return out
 }
 
+/** The milestone dispatches' prompts in the transcript: the paths in them
+ *  (the worktrees) lead to the project when the session started above it. */
+function dispatchPrompts(rows: readonly TranscriptRow[]): string[] {
+  const out: string[] = []
+  for (const r of rows) {
+    if (r.role !== 'assistant') continue
+    for (const u of r.toolUses) {
+      const call = callOf(u.input)
+      if (u.tool === 'Agent' && parseDispatchCall(call) !== null) out.push(call.prompt)
+    }
+  }
+  return out
+}
+
 /** Loads the plan into the run; a plan that cannot be read now never
  *  replaces one read before (a continued session's id may not be in
- *  sessions.map yet). */
-async function refreshPlan($: EngineInterface): Promise<void> {
-  const loaded = await loadPlan($, await $.session.id())
+ *  sessions.map yet). `hints`: text whose absolute paths may lead to the
+ *  project (dispatch prompts). */
+async function refreshPlan($: EngineInterface, hints: readonly string[]): Promise<void> {
+  let cwd: string[] = []
+  try {
+    cwd = [await $.session.cwd()]
+  } catch {
+    // the hints alone
+  }
+  // The newest dispatches first: the cap on candidates drops the oldest.
+  const loaded = await loadPlan($, await $.session.id(), [...cwd, ...[...hints].reverse().slice(0, 8)])
   const run = await read($, runAtom)
   if (run === null || (loaded.plan === null && run.plan !== null)) return
   await apply($, { kind: 'plan', plan: loaded.plan, error: loaded.error })
+}
+
+/** The STATUS/VERDICT of each agent with none read yet that the engine does
+ *  not run now, from the agent's own transcript: the main session's messages
+ *  leave a background agent's hand-back out. */
+async function agentReports($: EngineInterface, run: RunState | null, live: LiveAgents): Promise<Record<string, Outcome>> {
+  const out: Record<string, Outcome> = {}
+  if (run === null) return out
+  for (const a of Object.values(run.agents)) {
+    if (a.outcome !== null || live[a.agentId] === 'running') continue
+    try {
+      const found = await $.session.messages({ agentId: a.agentId })
+      if (!Array.isArray(found)) continue
+      const outcome = outcomeOfAgent(found as unknown as TranscriptRow[])
+      if (outcome !== null) out[a.agentId] = outcome
+    } catch {
+      // an agent the session cannot read keeps what the main transcript says
+    }
+  }
+  return out
 }
 
 /** Brings the run in line with the session's transcript and the engine's
@@ -104,7 +148,11 @@ async function sync($: EngineInterface): Promise<boolean> {
   const live = await liveAgents($)
   const start = base
   await update($, runAtom, run => reconcile(run ?? start, rows, now, live))
-  if (before === null || before.plan === null) await refreshPlan($)
+  const reports = await agentReports($, await read($, runAtom), live)
+  if (Object.keys(reports).length > 0) {
+    await update($, runAtom, run => (run === null ? run : applyReports(run, reports, now, live)))
+  }
+  if (before === null || before.plan === null) await refreshPlan($, dispatchPrompts(rows))
   await persist($)
   if (hasRunning(await read($, runAtom))) ensureTicker($)
   $.ui.invalidate('ui.render')
@@ -257,7 +305,8 @@ export const register: Register = on => {
   })
 
   on('agent.spawn', async ($, e, next) => {
-    if (e.parentAgentId !== undefined || parseDispatch(e.prompt) === null) return next(e)
+    const call = { prompt: e.prompt, description: e.description, subagentType: e.subagentType }
+    if (e.parentAgentId !== undefined || parseDispatchCall(call) === null) return next(e)
     const at = await $.clock.now()
     const result = await next(e)
     if (result.deny !== undefined || result.agentId === undefined) return result
@@ -266,8 +315,8 @@ export const register: Register = on => {
       if ((await read($, runAtom)) === null) await sync($)
       const isFirst = (await read($, runAtom)) === null
       if (isFirst) await update($, runAtom, run => run ?? emptyRun(at))
-      await apply($, { kind: 'spawn', agentId: result.agentId, toolUseId: e.tool_use_id || null, prompt: e.prompt, at })
-      await refreshPlan($)
+      await apply($, { kind: 'spawn', agentId: result.agentId, toolUseId: e.tool_use_id || null, ...call, at })
+      await refreshPlan($, [e.prompt])
       ensureTicker($)
       if (isFirst) await autoOpen($)
     } catch {
@@ -343,6 +392,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column">
           <Text dimColor>No implement run in this session yet.</Text>
+          <Text dimColor>The pane follows the milestones this session dispatches.</Text>
         </Box>
       )
     }

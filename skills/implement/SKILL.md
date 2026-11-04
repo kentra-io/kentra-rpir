@@ -79,7 +79,7 @@ Handle the report:
 | STATUS | You do |
 |---|---|
 | `DONE` | Verify (step 3). |
-| `DONE_WITH_CONCERNS` | Read the concerns. Settle those about correctness or scope (re-dispatch with guidance, or decide per the table below), then verify. |
+| `DONE_WITH_CONCERNS` | Read the concerns. Settle those about correctness or scope (re-dispatch with guidance, or decide per the table below), then verify. A concern that one of the milestone's own steps, criteria or documented commands fails, or could not be run, somewhere (a worktree, an image, CI, a busy port) is about correctness, even when it works elsewhere: re-dispatch or adjust the plan, never note it and pass it on. |
 | `NEEDS_CONTEXT` | Find the answer and re-dispatch with it in `guidance`. |
 | `BLOCKED` | Decide per the table below: re-dispatch with guidance, adjust the plan, or ask the user. |
 

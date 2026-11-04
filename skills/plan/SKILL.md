@@ -130,7 +130,14 @@ spec's `P<n>`:
 - **`head.yaml`** — `schemaVersion: 0.3.0`, the plan-level `description`
   (what every milestone shares) and `rules` (references every milestone
   needs, such as the constitution path when it is enabled), and last the
-  line `milestones:`.
+  line `milestones:`. The `description` settles every convention that files
+  in two milestones share, because each writer otherwise infers its own:
+  - file header layout;
+  - which test suite may need Docker or a real tool and which stays free of
+    them;
+  - naming and enum rules;
+  - a requirement map: each spec requirement and the milestone whose
+    criterion covers it, every requirement named once.
 - **One fragment per milestone**, a single list item indented under
   `milestones:`, holding:
   - `number`, `slug`, `goal`;

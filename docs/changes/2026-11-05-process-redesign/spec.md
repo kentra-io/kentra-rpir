@@ -73,9 +73,10 @@ research/models-review-split-context.md, research/external/index.md):
 | # | Premise | Importance | Status | Evidence |
 |---|---|---|---|---|
 | P1 | A subagent dispatched with the Agent tool can itself dispatch subagents (an Opus advisor, Haiku lookups). Workflow `agent()` subagents cannot: they have no Agent tool. | critical | unverified | 578be2d0 implementer and verifier transcripts carry `Agent`; workflow agents in research/../agents.json do not |
-| P2 | Nesting reaches three levels: orchestrator → milestone lead → implementer → lookup. | critical | unverified | docs say three levels (research/external/agent-role-patterns.md); a changelog note says v2.1.217 turned nesting off |
+| P2 | Nesting reaches three levels: orchestrator → milestone lead → implementer → lookup. | critical | verified | docs: code.claude.com/docs/en/sub-agents (fetched 2026-11-05) "By default, a subagent can spawn subagents of its own, up to three layers below the main conversation."; `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` changes it |
 | P3 | A subagent's prompt cache lives 5 minutes. A subagent resumed with SendMessage after a longer gap re-writes its whole history. | normal | verified | 578be2d0 M26 implementer: resumed after 7 s, read 58.7k from cache and wrote 0.8k; resumed after 5.6 min, wrote 61.0k and read 0 |
-| P4 | A milestoned-plan-dag plan can hold coarse milestones whose `steps` are a short outline with no code. | critical | unverified | the plan-author skill (milestoned-plan-dag 0.3.0) defines a step as "write the failing test, run it and see it fail…" |
+| P4 | A milestoned-plan-dag plan can hold coarse milestones whose `steps` are a short outline with no code. | critical | refuted | the plan-author skill (milestoned-plan-dag 0.3.0) defines a step as "write the failing test, run it and see it fail…"; milestoned-plan-dag is changed to allow it (Area 2.8) |
+| P5 | Most fix rounds come back within the 5-minute cache window, so a resumed verifier would usually hit cache. | normal | verified | 578be2d0: verifier hand-back → next verifier start was 3m17s (M19), 3m42s (M23), 9m43s (M22), 3m05s (M26), 1m05s and 0m48s (M25) |
 
 ## Requirements
 
@@ -99,16 +100,24 @@ research/models-review-split-context.md, research/external/index.md):
 
    Only the user caught these in past changes: the identity model in
    proto-to-avro, delete-and-recreate in proto3.
-3. **Spike.** One Sonnet agent drives a spike end to end: docs check,
-   experiments, conclusion.
+3. **Spike.** Premises are spiked asynchronously during the spec
+   conversation, while the conversation goes on. Every critical premise is
+   spiked; normal premises get a docs check only. A premise stated in
+   official documentation, or checked in the source code, counts as
+   verified without experiments. One Sonnet agent drives a spike end to end:
+   docs check, experiments, conclusion.
    - It may dispatch Haiku lookup agents for facts, and an Opus advisor for
      design calls and for a second read of its conclusion on a critical
      premise.
    - It writes a concise report: verdict, confidence, conclusions and
      references.
    - Its working files stay out of git.
-4. **Spike reports.** Spike reports are committed in the change folder. The
-   planning session reads their conclusions and updates the premise rows.
+4. **Spike reports.** Spike reports are committed in the change folder at
+   `research/<slug>.md`. The experiment files stay in the gitignored
+   `research/spikes/<slug>/`. This is the plugin's default. A project that
+   commits no kentra-rpir artifacts, such as banank, simply never commits
+   them. The planning session reads each report's conclusions and updates
+   the premise rows.
 5. **Plan.** One plan writer writes the plan as coarse milestones. Each
    milestone holds:
    - goal;
@@ -120,20 +129,31 @@ research/models-review-split-context.md, research/external/index.md):
    - at most a short outline of steps.
 
    No code.
-6. **Plan reviews.** One plan review checks the whole plan. There is no split
-   per milestone and no consolidator. Diff reviews follow edits, as today.
+6. **Plan reviews.** One plan review checks the whole plan. There is no
+   skeleton review, no split per milestone and no consolidator. Diff reviews
+   follow edits, as today.
 7. **Triage.** The reviewer labels each "no" as a user decision or a
    technical gap and gives the fix. No separate triage agent runs. The main
    session reads every research outcome against the document.
+8. **milestoned-plan-dag.** That plugin is changed so a plan holds coarse
+   milestones: the step rule (2–5-minute steps, failing test first) goes,
+   and `steps` becomes an optional short outline. There is no separate
+   coarse mode; the old shape is not kept.
+9. **Tiers.** `small` (spec, then one milestone with lead, implementer and
+   verifier, no plan file) and `standard` (spec, spikes, coarse plan)
+   replace `full` and `light`. The session that starts the spec proposes the
+   tier, and the user confirms it unless the answer is obvious.
 
 ### Area 3 — Implementation
 
 1. **Orchestrator.** The orchestrator (the main session, Opus) dispatches
    one milestone lead per ready milestone, up to `implement.maxParallel` at
    once.
-2. **Milestone lead.** The milestone lead turns the coarse milestone into
-   concrete work and delegates it to a Sonnet implementer. It reviews the
-   implementer's output and hands the milestone back.
+2. **Milestone lead.** The milestone lead (Opus) turns the coarse milestone
+   into concrete work and delegates it to a Sonnet implementer it spawns.
+   It reviews the implementer's output and hands the milestone back. The
+   lead and its implementer persist for the whole milestone, fix rounds
+   included. Parallel milestones get parallel leads.
 3. **Contract verifier.** The orchestrator dispatches a fresh contract
    verifier for each milestone the lead hands back. The verifier is
    independent of the lead. It checks the contract, the criteria, the
@@ -207,17 +227,17 @@ critical premises: both refutations so far were would-break.
 
 - **Cache.** A subagent's cache lives 5 minutes (P3). Whenever a lead waits
   more than 5 minutes for its implementer, the lead re-writes its whole
-  context at Opus cache-write price on its next turn. A persistent
-  implementer resumed after a verifier round pays the same for its own
-  history.
-- **Proposed shape:**
-  - The lead keeps its context small: the milestone, the spec sections it
-    needs, and the implementer's hand-backs, not the implementer's file
-    reads.
-  - The implementer persists for the length of the milestone and is resumed
-    for parts that follow within minutes.
-  - A fix round after a long verifier run starts a fresh implementer from
-    the lead's brief.
+  context at Opus cache-write price on its next turn. The user accepts this:
+  a persistent lead and implementer keep what they learned about the
+  milestone.
+- The lead keeps its context small: the milestone, the spec sections it
+  needs, and the implementer's hand-backs, not the implementer's file reads.
+- **Verifier per round.** A fresh verifier for each milestone. For a
+  re-verification round, the orchestrator resumes the same verifier when
+  the fix comes back within the cache window (P5), and dispatches a fresh
+  one otherwise. It reads the verifier's hand-back time and compares it
+  with now. The resumed verifier re-runs the full check and re-reads the
+  whole diff, not only its earlier findings.
 
 ### User-level research workflow (proposals for the user to pick from)
 
@@ -234,37 +254,23 @@ critical premises: both refutations so far were would-break.
 
 ## Open questions
 
-1. **When premises are spiked.** During the spec conversation, so the spec is
-   agreed with its spikes done, or during the plan stage, with the spec
-   agreed while some premises are still unverified?
-2. **What gets spiked.** Every critical premise? Normal premises by docs check
-   only? Who decides: the main session, or the user per premise?
-3. **Spike reports in git.** The banank workspace rule says "Spikes are local
-   work and are never committed". Proposed split: the report is committed at
-   `research/<slug>.md`, and the experiment files stay in gitignored
-   `research/spikes/<slug>/`. Does the workspace rule need rewording?
-4. **Milestone lead or advisor on demand.**
-   - An Opus lead holds context for the whole milestone. It costs more, and
-     every long wait re-caches it.
-   - The alternative is a Sonnet implementer that calls an Opus advisor only
-     when stuck. It is cheaper, but Sonnet decides when to escalate.
-   - No source compares them head to head; Cognition's frontier-lead design
-     reported −54% cost at equal score. Pilot both?
-5. **Nesting depth** (P2): a spike needs 2 levels, a milestone needs 3. To be
-   tested before planning.
-6. **Re-verification.** A fresh verifier each round, or the same verifier
-   resumed with the fix diff? Resuming keeps it independent of the builder,
-   but risks anchoring.
-7. **Tiers.** Scale the stages to the size of the change, for example:
-   - **small:** spec, then one milestone with lead, implementer and
-     verifier, no plan file;
-   - **standard:** spec, spikes, coarse plan.
-
-   This would replace full and light. What decides the tier?
-8. **Skeleton review.** With one writer and a coarse plan, is a separate
-   skeleton review still worth it, or does the single plan review cover it?
-9. **milestoned-plan-dag.** Change that plugin (a coarse mode, no red-green),
-   or work around it in the plan skill?
-10. **Research workflow.** Which of the four proposals to apply.
-11. **Issue #22** (implementer red runs) and the F9 backlog entry: close them
-    as rejected?
+1. **One planning stage.** Merge spec and plan into a single command (the
+   "planning stage")? Proposed shape:
+   - one session;
+   - checkpoint 1: the user agrees the spec, with premises spiked in the
+     background meanwhile;
+   - the session writes the coarse plan;
+   - checkpoint 2: the user approves the plan;
+   - one fresh review of spec and plan together before checkpoint 2, with
+     diff reviews after edits.
+2. **Lead or advisor: how to verify.** No source compares them head to head.
+   Proposed pilot:
+   - take three or four milestones of a finished change and write them as
+     coarse contracts;
+   - build each twice in worktrees: Opus lead with a Sonnet implementer, and
+     a Sonnet implementer with an Opus advisor on demand;
+   - compare verifier findings, rework rounds, the user's review and cost.
+3. **Re-verification.** The user wants fresh verifiers so assumptions do not
+   carry over, and cache reuse when possible. The Design section resumes the
+   verifier within the cache window and otherwise starts fresh. To confirm.
+4. **Research workflow.** Which of the four proposals to apply.

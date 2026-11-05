@@ -2,7 +2,7 @@
 title: Demo diamond
 type: chore
 status: planned
-tier: light
+tier: standard
 ---
 
 ## Problem

@@ -22,8 +22,10 @@ the sources.
   `ask`, `answer`, `tool`) is the session the documents came from. With no
   log, answer S1, S2 and S6 no, with evidence "no planning log".
 - **The ledger** is the spec's Premises table plus the plan's `# premises:`
-  comment block. Each row links the research report that settled it. Open a
-  report only when a check turns on what it says.
+  comment block. A row settled by a research job links its report, under
+  `research/` or wherever the research index row names it. A row settled by
+  a direct read gives `docs: <URL or file:line@version>`. Open a report
+  only when a check turns on what it says.
 - **The constitution**, when your task names one.
 - **Project rules** govern the files the change touches: the `CLAUDE.md` and
   `AGENTS.md` files in those files' directories and every parent up to the
@@ -44,8 +46,9 @@ checks only.
 - **S2** The spec states nothing the session did not decide or the user did
   not agree to.
 - **S3** Every premise has an importance, a status (verified, refuted or
-  unverified) and evidence. A researched premise links its report under
-  `research/`.
+  unverified) and evidence: the report a research job wrote, or
+  `docs: <URL or file:line@version>` for a direct read. Every critical
+  premise about an outside system links a report.
 - **S4** No requirement or design decision relies on a refuted premise.
 - **S5** Every requirement is a plain statement a test could check.
 - **S6** Non-goals include everything the session explicitly ruled out.

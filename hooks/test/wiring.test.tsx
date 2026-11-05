@@ -4,6 +4,7 @@ import type { Engine } from 'claude-code/testing'
 
 import type { RunState, Status } from '../../types'
 import { styleOf } from '../register'
+import { viewOf } from '../tracker'
 
 const PLUGIN = 'kentra-rpir'
 const PANE = 'rpir-graph'
@@ -34,6 +35,8 @@ const filesWithPlan = (count: number): Record<string, string | undefined> => ({
 })
 const implPrompt = (n: number, slug: string) =>
   `You are implementing milestone M${n} \`${slug}\` of the change "Demo change".\n\nWork only in /x.`
+const leadPrompt = (n: number, slug: string) =>
+  `You are leading milestone M${n} \`${slug}\` of the change "Demo change".\n\nWork only in /x.`
 const verifyPrompt = (n: number, slug: string) =>
   `You are verifying milestone M${n} \`${slug}\` of the change "Demo change".\n\nWork only in /x.`
 
@@ -282,6 +285,24 @@ test('background dispatch ends on the subagent turn, not the launch notice', asy
   const agent = runOf(kit)!.agents[agentId]!
   expect(agent.endedAt).not.toBeNull()
   expect(agent.outcome).toBe('DONE')
+})
+
+test('a lead resumed after a FAIL shows fixing', async ($, on) => {
+  const kit = setup(on, filesWithPlan(3))
+  const ids: string[] = []
+  on('turn.start', (_$, e) => ({ turnId: e.turnId }))
+  kit.onAgent = async e => {
+    ids.push(await spawn($, String(e.prompt), e.tool_use_id ?? 'tu-1'))
+    return String(e.prompt).includes('verifying') ? 'VERDICT: FAIL\nFINDINGS: x' : 'STATUS: DONE'
+  }
+  await $.tool.call({ tool: 'Agent', prompt: leadPrompt(1, 'a'), description: 'Lead M1 a', subagent_type: 'kentra-rpir:lead' } as never)
+  await $.tool.call({ tool: 'Agent', prompt: verifyPrompt(1, 'a'), description: 'Verify M1 a', subagent_type: 'kentra-rpir:verifier' } as never)
+  const [lead] = ids
+  await finish($, lead!, 'STATUS: DONE')
+  await $.turn.start({ agentId: lead, turnId: 'turn-resume' } as never)
+  const run = runOf(kit)!
+  expect(run.agents[lead!]).toMatchObject({ rounds: 1, endedAt: null })
+  expect(viewOf(run, 'a', 2_000_000).status).toBe('fixing')
 })
 
 test('styleOf colours', () => {

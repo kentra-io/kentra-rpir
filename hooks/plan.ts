@@ -103,6 +103,18 @@ export function parseSpecTitle(specText: string, changeFolder: string): string {
   return basename(changeFolder)
 }
 
+export function isSmallTier(specText: string): boolean {
+  const lines = specText.split(/\r?\n/)
+  if (lines[0]?.trim() !== '---') return false
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i] ?? ''
+    if (line.trim() === '---') break
+    const m = /^tier:\s*["']?([A-Za-z-]+)/.exec(line)
+    if (m) return m[1]?.toLowerCase() === 'small'
+  }
+  return false
+}
+
 export function parsePlanYaml(text: string, title: string, changeFolder: string): PlanGraph {
   let doc: unknown
   try {
@@ -175,19 +187,26 @@ export async function loadPlan(
       return { plan: null, error: `no implement run in ${SESSIONS_MAP} under ${candidates[0]} or the dispatches' paths` }
     }
     const { root: project, folder } = found
-    const planPath = `${folder.replace(/\/+$/, '')}/plan.yaml`
+    const dir = folder.replace(/\/+$/, '')
+    const planPath = `${dir}/plan.yaml`
+    let specText: string | null = null
+    try {
+      specText = await $.fs.read(joinPath(project, `${dir}/spec.md`))
+    } catch {
+      // spec.md is optional: keep the folder's basename as the title.
+    }
     let planText: string
     try {
       planText = await $.fs.read(joinPath(project, planPath))
     } catch {
+      if (specText !== null && isSmallTier(specText)) {
+        const slug = basename(folder).replace(/^\d{4}-\d{2}-\d{2}-/, '')
+        const milestone = { number: 1, slug, goal: parseSpecTitle(specText, folder), dependsOn: [] }
+        return { plan: { title: milestone.goal, changeFolder: folder, milestones: [milestone] }, error: null }
+      }
       return { plan: null, error: `cannot read ${planPath}` }
     }
-    let title = basename(folder)
-    try {
-      title = parseSpecTitle(await $.fs.read(joinPath(project, `${folder.replace(/\/+$/, '')}/spec.md`)), folder)
-    } catch {
-      // spec.md is optional: keep the folder's basename as the title.
-    }
+    const title = specText !== null ? parseSpecTitle(specText, folder) : basename(folder)
     return { plan: parsePlanYaml(planText, title, folder), error: null }
   } catch (err) {
     return { plan: null, error: oneLine(err instanceof Error ? err.message : String(err)) || 'cannot load the plan' }

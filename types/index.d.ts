@@ -3,7 +3,7 @@ export type Status =
   | 'waiting' | 'ready' | 'implementing' | 'implemented' | 'verifying' | 'verified'
   | 'failed' | 'fixing' | 'passed' | 'merged' | 'stuck'
 export type Outcome =
-  | 'PASS' | 'FAIL' | 'DONE' | 'DONE_WITH_CONCERNS' | 'NEEDS_CONTEXT' | 'BLOCKED'
+  | 'PASS' | 'FAIL' | 'DONE' | 'DONE_WITH_CONCERNS' | 'NEEDS_CONTEXT' | 'BLOCKED' | 'WAITING'
 
 /** One milestone of the plan; dependsOn holds slugs. */
 export type PlanMilestone = { number: number; slug: string; goal: string; dependsOn: string[] }

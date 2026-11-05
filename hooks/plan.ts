@@ -103,7 +103,6 @@ export function parseSpecTitle(specText: string, changeFolder: string): string {
   return basename(changeFolder)
 }
 
-/** True when the spec's frontmatter says `tier: small`. */
 export function isSmallTier(specText: string): boolean {
   const lines = specText.split(/\r?\n/)
   if (lines[0]?.trim() !== '---') return false

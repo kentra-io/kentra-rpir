@@ -11,7 +11,7 @@ each in its own worktree, independent milestones in parallel:
 | Role | Who dispatches it | Lives |
 |---|---|---|
 | **lead** (`roles.lead`) | you, one per milestone | the whole milestone: you resume it with SendMessage for every fix round |
-| **implementer** (`roles.implementer`) | the lead, one per piece of work, in the foreground | one piece |
+| **implementer** (`roles.implementer`) | the lead, one per piece of work, one at a time | one piece |
 | **verifier** (`roles.verifier`) | you, when a lead hands back | one milestone's verification; resumed for a re-verification within the cache window |
 
 The lead owns the design inside its milestone. Your judgement does the
@@ -100,7 +100,10 @@ A small-tier change is one milestone built from the spec:
 - **rules:** those the spec names, else none.
 
 Show the user this contract in one message. Their confirmation stands in
-for an approved plan. Then run it through steps 2–6 like any milestone.
+for an approved plan. Record the confirmed contract in the state file as
+milestone 1's `contract` (step 1.4); fill the lead and verifier prompts
+from it, then and after any resume. Then run it through steps 2–6 like any
+milestone.
 
 ## 2. Dispatch leads
 
@@ -112,6 +115,7 @@ progress (a lead dispatched, not yet merged or settled as blocked):
    `git worktree add <worktreesDir>/<slug>--m<n>-<mslug> -b <branchPrefix><slug>--m<n> <branchPrefix><slug>`.
    Record that head as the milestone's `base`.
 2. Fill `lead-prompt.md`:
+   - `title` is `spec.md`'s title;
    - `worktree` is the milestone worktree's absolute path; `branch` and
      `base` as created in step 1;
    - `spec` is the absolute path of `spec.md` inside the milestone worktree;
@@ -119,7 +123,8 @@ progress (a lead dispatched, not yet merged or settled as blocked):
      `roles.implementer.agent` and `roles.implementer.model`;
    - `plan_description` is the plan's `description`;
    - `rules` is the plan-level rules followed by the milestone's;
-   - the milestone fields come from the resolve output;
+   - the milestone fields come from the resolve output, or at the small
+     tier from the state file's `contract`;
    - `guidance` is empty on the first dispatch.
 3. Dispatch with the Agent tool, `run_in_background: true`:
    - `subagent_type`: `roles.lead.agent`;
@@ -143,9 +148,15 @@ When a lead hands back, write its hand-back time to the state file, then:
 | `DONE_WITH_CONCERNS` | Read the concerns. Settle those about correctness or scope: resume the lead with guidance, or decide per "Decide or ask". Then verify. A concern that one of the milestone's own criteria, its check or a documented command fails, or could not be run, somewhere (a worktree, an image, CI, a busy port) is about correctness, even when it works elsewhere: resume the lead or adjust the plan, never note it and pass it on. |
 | `NEEDS_CONTEXT` | Find the answer, or ask the user when it is theirs, and resume the lead with it. |
 | `BLOCKED` | Decide per "Decide or ask": resume the lead with guidance, adjust the plan, or ask the user. |
+| `WAITING` | Not a hand-back to verify. Its implementer, named on the `WAITING:` line, still runs, and its report comes to you, not to the lead. Set the milestone's phase to `waiting`. When that report arrives, resume the same lead with it verbatim. |
 
-Resume a lead with SendMessage to its agent id: the answer, guidance or
-findings, and nothing it already has.
+An implementer's report reaching you directly (its description starts with
+`M<n>`) belongs to milestone n's lead: keep it until that lead hands back
+WAITING, or pass it on at once when the lead already has.
+
+Resume a lead with SendMessage to its agent id: the answer, guidance,
+findings or implementer report, and nothing it already has. Count every
+resume in the milestone's `leadRounds`.
 
 ## 4. Verify
 
@@ -161,8 +172,8 @@ lead. Send it the milestone, never the lead's report.
     slot as in the lead's prompt.
 - **Re-verification after a fix:** take the verifier's `handedBackAt` from
   the state file and compare it with `date +%s`.
-  - **Within `implement.cacheWindowMinutes`:** resume that verifier with
-    SendMessage: `Re-verify M<n> <mslug>: the lead's fix is committed on
+  - **Within `implement.cacheWindowMinutes`:** count it in
+    `verifyResumes` and resume that verifier with SendMessage: `Re-verify M<n> <mslug>: the lead's fix is committed on
     <branch>. Verify from scratch: run the full check, re-read the whole
     diff from <base>, and go through every check again.`
   - **Otherwise,** or when it cannot be reached: dispatch a fresh verifier
@@ -214,23 +225,35 @@ phase change and merge, before acting on the hand-back:
       "worktree": "/abs/project/.worktrees/2026-11-05-example--m2-store",
       "branch": "rpir/2026-11-05-example--m2",
       "base": "<integration sha the milestone branched from>",
-      "phase": "lead | verify | merged | blocked",
+      "phase": "lead | waiting | verify | merged | blocked",
       "lead": { "id": "<agent id>", "handedBackAt": 1762340000 },
       "verifier": { "id": "<agent id>", "handedBackAt": null },
-      "verifyRounds": 1
+      "leadRounds": 2,
+      "verifyRounds": 2,
+      "verifyResumes": 1,
+      "contract": "small tier only: { goal, description, deliverables, check, criteria, paths, rules } as the user confirmed them"
     }
   }
 }
 ```
 
 Times are `date +%s` seconds; `handedBackAt` is `null` while the agent runs.
+`leadRounds` counts the lead's dispatch and every resume; `verifyRounds`
+every verification, of which `verifyResumes` resumed a verifier.
 
 ### After a resume or compaction
 
 Re-read the state file before anything else, and `git -C <integration> log
---oneline` for the merges. Then, per milestone that is not merged:
+--oneline` for the merges. A small-tier milestone's prompts come from its
+recorded `contract`. Then, per milestone that is not merged:
 
-- an agent recorded as running: ask it for its hand-back with SendMessage;
+- an agent recorded as running: wait for its notification. When none
+  arrives because the session's process was resumed, resume the agent with
+  SendMessage, telling it to continue where it stopped and hand back when
+  its work is done;
+- a milestone in phase `waiting` whose implementer report never arrives:
+  resume its lead, telling it the implementer's report was lost and to
+  check the branch for the piece's commit before going on;
 - an agent you need to reach (a lead for a fix round, a verifier within the
   cache window) that SendMessage cannot reach is replaced by a fresh one:
   - a fresh lead gets `guidance`: `An earlier lead worked on this milestone;
@@ -318,6 +341,7 @@ place. Then end with one line:
 
 | Thought | Reality |
 |---|---|
+| "The lead handed back, so I'll verify" | A WAITING lead is mid-piece. Verify only DONE, or settled DONE_WITH_CONCERNS. |
 | "The lead said DONE, I'll merge" | Every milestone passes a verifier independent of its lead first. |
 | "I'll tell the verifier what the lead reported" | The verifier gets the milestone, never the lead's report. |
 | "A FAIL: I'll dispatch a new lead with the findings" | The same lead, resumed with SendMessage. A fresh one only when it cannot be reached. |

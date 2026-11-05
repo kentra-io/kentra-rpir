@@ -13,7 +13,7 @@ const STATUSES: readonly Status[] = [
 // Pinned by tests/check-templates.sh against skills/implement/*-prompt.md line 1.
 const DISPATCH = /^You are (implementing|verifying|leading) milestone M(\d+) `([^`]+)`/
 const OUTCOME_LINE =
-  /^[\s>*_`-]*(VERDICT|STATUS)[*_`]*\s*:\s*[*_`]*\s*(PASS|FAIL|DONE_WITH_CONCERNS|DONE|NEEDS_CONTEXT|BLOCKED)(?![A-Za-z0-9_])/
+  /^[\s>*_`-]*(VERDICT|STATUS)[*_`]*\s*:\s*[*_`]*\s*(PASS|FAIL|DONE_WITH_CONCERNS|DONE|NEEDS_CONTEXT|BLOCKED|WAITING)(?![A-Za-z0-9_])/
 const VERDICTS: readonly Outcome[] = ['PASS', 'FAIL']
 const MERGE_SHAPE = /\bgit\s[\s\S]*\bmerge\b[\s\S]*(?:^|\s)--no-ff(?=\s|$)/
 const MERGE_MESSAGE = /-m\s*["']Merge M(\d+)(?=[\s"'])/
@@ -66,7 +66,7 @@ export function callOf(input: Record<string, unknown>): DispatchCall {
   }
 }
 
-/** The last `VERDICT: PASS|FAIL` or `STATUS: DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED`
+/** The last `VERDICT: PASS|FAIL` or `STATUS: DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED|WAITING`
  *  line in a subagent's final text (markdown bold/backticks around it tolerated), or null. */
 export function parseOutcome(text: string): Outcome | null {
   let found: Outcome | null = null
@@ -100,14 +100,11 @@ function findAgent(state: RunState, agentId: string | null, toolUseId: string | 
   return null
 }
 
-/** Start of the agent's current round. */
 function activeStart(a: AgentRun): number {
   return a.resumedAt ?? a.startedAt
 }
 
-/** An ended agent running again. When another agent of its milestone started
- *  a round since it ended, this is a new round; else it woke itself (after
- *  its own background shell) and only stops being ended. */
+/** A resume counts as a new round only when another agent of the milestone ran since this one ended. */
 function reopen(state: RunState, a: AgentRun, at: number): AgentRun {
   if (a.endedAt === null) return a
   const endedAt = a.endedAt
@@ -226,6 +223,7 @@ function statusOf(
       if (last.outcome === 'FAIL') return 'failed'   // awaiting a fix round
       return 'verified'                              // awaiting the verdict read
     }
+    if (last.role === 'impl' && last.outcome === 'WAITING') return 'implementing'   // lead waits on its own implementer
     if (last.outcome === 'BLOCKED' || last.outcome === 'NEEDS_CONTEXT') return 'stuck'
     return 'implemented'                             // DONE, DONE_WITH_CONCERNS or none: awaiting verify
   }

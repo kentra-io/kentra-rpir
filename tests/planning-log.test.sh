@@ -39,7 +39,7 @@ transcript_path() { # transcript_path <project> <sid> -> prints the path a direc
 projA="$root/projA"
 changeA=docs/changes/2026-10-11-demoA
 sidMain=aaaaaaaa-1111-1111-1111-111111111111
-register "$projA" "$sidMain" "$changeA" spec
+register "$projA" "$sidMain" "$changeA" plan
 tA=$(transcript_path "$projA" "$sidMain")
 
 # Fixture key shapes are assembled at run time so the source holds no literal
@@ -64,7 +64,7 @@ unmask > "$tA" <<'JSONL'
 not valid json {{{
 JSONL
 
-# The session's own directory (2.1.3) is the transcript path without
+# The session's own directory is the transcript path without
 # .jsonl, NOT the slug directory it lives in.
 mkdir -p "${tA%.jsonl}/subagents"
 echo '{"type":"user","message":{"role":"user","content":"SUBAGENT_SENTINEL_TEXT ghp_zyxwvutsrqponmlkjihgfedcba9876543210"}}' \
@@ -139,14 +139,16 @@ sidX=bbbbbbbb-1111-1111-1111-111111111111
 sidY=bbbbbbbb-2222-2222-2222-222222222222
 sidZ=bbbbbbbb-3333-3333-3333-333333333333
 sidW=bbbbbbbb-4444-4444-4444-444444444444
+sidV=bbbbbbbb-5555-5555-5555-555555555555
 
-register "$projB" "$sidX" "$changeB" spec
-register "$projB" "$sidY" "$changeB" plan
-register "$projB" "$sidZ" "$changeB" spec
-register "$projB" "$sidW" "$changeB" review
+register "$projB" "$sidX" "$changeB" plan
+register "$projB" "$sidY" "$changeB" spec
 register "$projB" "$sidZ" "$changeB" plan
+register "$projB" "$sidW" "$changeB" review
+register "$projB" "$sidZ" "$changeB" implement
+register "$projB" "$sidV" "$changeB" implement
 
-for s in "$sidX" "$sidY" "$sidZ" "$sidW"; do
+for s in "$sidX" "$sidY" "$sidZ" "$sidW" "$sidV"; do
   tp=$(transcript_path "$projB" "$s")
   printf '{"type":"user","timestamp":"2026-10-12T09:00:00Z","version":"2.2.1","message":{"role":"user","content":"hello from %s"}}\n' "$s" > "$tp"
 done
@@ -158,12 +160,13 @@ rcB=$?
 checkeq "scenario B exits 0" "$rcB" "0"
 
 ids=$(jq -r 'select(.kind=="session") | .id' "$outB")
-checkeq "two single-stage sessions + one dual-stage session, in map order" \
+checkeq "two single-stage sessions (one an older spec) + one dual-stage session, in map order" \
   "$ids" "$(printf '%s\n%s\n%s' "$sidX" "$sidY" "$sidZ")"
-checkeq "sidX stage" "$(jq -r --arg id "$sidX" 'select(.kind=="session" and .id==$id) | .stages' "$outB")" "spec"
-checkeq "sidY stage" "$(jq -r --arg id "$sidY" 'select(.kind=="session" and .id==$id) | .stages' "$outB")" "plan"
-checkeq "sidZ joined stages" "$(jq -r --arg id "$sidZ" 'select(.kind=="session" and .id==$id) | .stages' "$outB")" "spec+plan"
+checkeq "a plan session is included" "$(jq -r --arg id "$sidX" 'select(.kind=="session" and .id==$id) | .stages' "$outB")" "plan"
+checkeq "an old spec-stage session is included" "$(jq -r --arg id "$sidY" 'select(.kind=="session" and .id==$id) | .stages' "$outB")" "spec"
+checkeq "a plan+implement session is included with its joined stages" "$(jq -r --arg id "$sidZ" 'select(.kind=="session" and .id==$id) | .stages' "$outB")" "plan+implement"
 checkeq "a review-only session is not included" "$(jq -r --arg id "$sidW" 'select(.id==$id)' "$outB")" ""
+checkeq "an implement-only session is not included" "$(jq -r --arg id "$sidV" 'select(.id==$id)' "$outB")" ""
 
 # =========================================================================
 # Scenario C: a missing transcript is reported, not fatal; the other
@@ -176,7 +179,7 @@ sidMissing=cccccccc-1111-1111-1111-111111111111
 sidOk=cccccccc-2222-2222-2222-222222222222
 
 register "$projC" "$sidMissing" "$changeC" plan
-register "$projC" "$sidOk" "$changeC" spec
+register "$projC" "$sidOk" "$changeC" plan
 tOk=$(transcript_path "$projC" "$sidOk")
 echo '{"type":"user","timestamp":"2026-10-12T09:00:00Z","message":{"role":"user","content":"kept line for sidOk"}}' > "$tOk"
 # sidMissing is registered but no transcript file exists anywhere for it.
@@ -195,7 +198,7 @@ check "scenario C: the other session's entries are still written" \
 check "scenario C: no .tmp left behind" test ! -e "$outC.tmp"
 
 # =========================================================================
-# Scenario D: no spec/plan session registered for the change.
+# Scenario D: no plan (or older spec) session registered for the change.
 # =========================================================================
 
 projD="$root/projD"
@@ -205,9 +208,10 @@ sidReviewOnly=dddddddd-1111-1111-1111-111111111111
 register "$projD" "$sidReviewOnly" "$changeD" review
 
 outD="$projD/$changeD/planning-log.jsonl"
-sh "$script" --project "$projD" --change "$changeD" --out "$outD" >/dev/null 2>&1
+errD=$(sh "$script" --project "$projD" --change "$changeD" --out "$outD" 2>&1 >/dev/null)
 rcD=$?
 checkeq "scenario D (no planning session) exits 2" "$rcD" "2"
+checkeq "scenario D: error names the missing planning session" "$errD" "kentra-rpir: planning-log.sh: no planning session registered for $changeD"
 check "scenario D: no file written" test ! -e "$outD"
 check "scenario D: no .tmp left behind" test ! -e "$outD.tmp"
 
@@ -253,7 +257,7 @@ chmod +x "$shimdir/jq"
 projE="$root/projE"
 changeE=docs/changes/2026-10-11-demoE
 sidE=eeeeeeee-1111-1111-1111-111111111111
-register "$projE" "$sidE" "$changeE" spec
+register "$projE" "$sidE" "$changeE" plan
 tE=$(transcript_path "$projE" "$sidE")
 echo '{"type":"user","timestamp":"2026-10-12T09:00:00Z","message":{"role":"user","content":"hello"}}' > "$tE"
 
@@ -266,7 +270,7 @@ check "scenario E: no output file written" test ! -e "$outE"
 check "scenario E: no .tmp left behind" test ! -e "$outE.tmp"
 
 # =========================================================================
-# Scenario F: 2.2.3's lenient reading must survive well-formed JSON of an
+# Scenario F: lenient reading must survive well-formed JSON of an
 # unexpected shape, even on the LAST line of the transcript (jq can raise a
 # runtime error — not just skip via fromjson? — on a shape it did not
 # expect; that must never abort the whole run). Exit 0, earlier kept
@@ -276,7 +280,7 @@ check "scenario E: no .tmp left behind" test ! -e "$outE.tmp"
 projF="$root/projF"
 changeF=docs/changes/2026-10-11-demoF
 sidF=ffffffff-1111-1111-1111-111111111111
-register "$projF" "$sidF" "$changeF" spec
+register "$projF" "$sidF" "$changeF" plan
 tF=$(transcript_path "$projF" "$sidF")
 
 cat > "$tF" <<'JSONL'

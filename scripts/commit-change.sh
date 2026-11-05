@@ -1,7 +1,7 @@
 #!/bin/sh
-# commit-change.sh — the spec and plan commits go through this script so an
-# embedded repository (e.g. a spike's own .git) never lands in a commit
-# (E4). Run with cwd at the project git root. POSIX sh.
+# commit-change.sh — the planning stage's commit goes through this script so
+# an embedded repository (e.g. a spike's own .git) never lands in a commit.
+# Run with cwd at the project git root. POSIX sh.
 #
 #   commit-change.sh <change folder> <message> [extra path ...]
 #

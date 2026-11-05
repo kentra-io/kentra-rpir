@@ -72,11 +72,12 @@ research/models-review-split-context.md, research/external/index.md):
 
 | # | Premise | Importance | Status | Evidence |
 |---|---|---|---|---|
-| P1 | A subagent dispatched with the Agent tool can itself dispatch subagents (an Opus advisor, Haiku lookups). Workflow `agent()` subagents cannot: they have no Agent tool. | critical | unverified | 578be2d0 implementer and verifier transcripts carry `Agent`; workflow agents in research/../agents.json do not |
+| P1 | A subagent dispatched with the Agent tool can itself dispatch subagents (an Opus advisor, Haiku lookups). Workflow `agent()` subagents cannot: they have no Agent tool. | critical | verified | probe 2026-11-05 (nest-probe): a general-purpose subagent spawned a child and resumed it with SendMessage; workflow agents in research/../agents.json carry no `Agent` tool |
 | P2 | Nesting reaches three levels: orchestrator → milestone lead → implementer → lookup. | critical | verified | docs: code.claude.com/docs/en/sub-agents (fetched 2026-11-05) "By default, a subagent can spawn subagents of its own, up to three layers below the main conversation."; `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` changes it |
 | P3 | A subagent's prompt cache lives 5 minutes. A subagent resumed with SendMessage after a longer gap re-writes its whole history. | normal | verified | 578be2d0 M26 implementer: resumed after 7 s, read 58.7k from cache and wrote 0.8k; resumed after 5.6 min, wrote 61.0k and read 0 |
-| P4 | A milestoned-plan-dag plan can hold coarse milestones whose `steps` are a short outline with no code. | critical | refuted | the plan-author skill (milestoned-plan-dag 0.3.0) defines a step as "write the failing test, run it and see it fail…"; milestoned-plan-dag is changed to allow it (Area 2.8) |
+| P4 | A milestoned-plan-dag plan can hold coarse milestones with no steps. | critical | verified | milestoned-plan-dag branch `schema-0.4.0-no-steps` (e451450) removes `steps`; `go test ./...` passes and a plan with steps is rejected |
 | P5 | Most fix rounds come back within the 5-minute cache window, so a resumed verifier would usually hit cache. | normal | verified | 578be2d0: verifier hand-back → next verifier start was 3m17s (M19), 3m42s (M23), 9m43s (M22), 3m05s (M26), 1m05s and 0m48s (M25) |
+| P6 | A subagent can wait for a child it started in the background, or resumed with SendMessage, across the end of its own turn. | critical | refuted | probe 2026-11-05 (nest-probe2): the lead ended its turn after starting a background child and handed back at once; the child's result went to the main session, and the lead was never woken. A foreground Agent call blocks and returns the child's result |
 
 ## Requirements
 
@@ -118,15 +119,17 @@ research/models-review-split-context.md, research/external/index.md):
    commits no kentra-rpir artifacts, such as banank, simply never commits
    them. The planning session reads each report's conclusions and updates
    the premise rows.
-5. **Plan.** One plan writer writes the plan as coarse milestones. Each
-   milestone holds:
+5. **Plan.** The planning session itself writes the plan as coarse
+   milestones (no plan-writer agent). Each milestone holds, in its
+   `description` and `contract`:
    - goal;
    - scope: the files and directories, from the spec's layout;
    - the interfaces it provides and uses, from the spec's abstractions;
    - acceptance criteria;
    - the check command;
-   - risks, with the premises they depend on;
-   - at most a short outline of steps.
+   - risks, with the premises they depend on.
+
+   Milestones have no steps.
 
    No code.
 6. **Plan reviews.** One plan review checks the whole plan. There is no
@@ -135,10 +138,11 @@ research/models-review-split-context.md, research/external/index.md):
 7. **Triage.** The reviewer labels each "no" as a user decision or a
    technical gap and gives the fix. No separate triage agent runs. The main
    session reads every research outcome against the document.
-8. **milestoned-plan-dag.** That plugin is changed so a plan holds coarse
-   milestones: the step rule (2–5-minute steps, failing test first) goes,
-   and `steps` becomes an optional short outline. There is no separate
-   coarse mode; the old shape is not kept.
+8. **milestoned-plan-dag.** That plugin moves to schema 0.4.0. The
+   `steps` field and the plan-author step rule (2–5-minute steps, failing
+   test first) are removed, and 0.4.0 rejects a plan that has `steps`.
+   There is no compatibility mode. Plans in finished change folders keep
+   `schemaVersion: 0.3.0` as history.
 9. **Tiers.** `small` (spec, then one milestone with lead, implementer and
    verifier, no plan file) and `standard` (spec, spikes, coarse plan)
    replace `full` and `light`. The session that starts the spec proposes the
@@ -149,11 +153,17 @@ research/models-review-split-context.md, research/external/index.md):
 1. **Orchestrator.** The orchestrator (the main session, Opus) dispatches
    one milestone lead per ready milestone, up to `implement.maxParallel` at
    once.
-2. **Milestone lead.** The milestone lead (Opus) turns the coarse milestone
-   into concrete work and delegates it to a Sonnet implementer it spawns.
-   It reviews the implementer's output and hands the milestone back. The
-   lead and its implementer persist for the whole milestone, fix rounds
-   included. Parallel milestones get parallel leads.
+2. **Milestone lead.**
+   - **Role:** the milestone lead (Opus) turns the coarse milestone into
+     concrete work. It runs Sonnet implementers as foreground subagents, a
+     fresh one for each piece of work, each from a brief. It reviews their
+     output and hands the milestone back.
+   - **Persistence:** the lead persists for the whole milestone. The
+     orchestrator resumes it with SendMessage for fix rounds.
+   - **Parallelism:** parallel milestones get parallel leads.
+   - **Why not a persistent implementer:** a lead cannot wait for a
+     persistent implementer across its own turns (P6). The user chose this
+     shape on 2026-11-05.
 3. **Contract verifier.** The orchestrator dispatches a fresh contract
    verifier for each milestone the lead hands back. The verifier is
    independent of the lead. It checks the contract, the criteria, the
@@ -204,13 +214,12 @@ are scripts.
 
 | Stage | Judge | Independent check | Removed |
 |---|---|---|---|
-| Spec | The user decides; the main session drafts | One fresh Opus full review before `agreed`, with the two new checks; diff review after edits | Separate triage agent |
+| Spec and plan | The user decides; the main session drafts both | One fresh Opus review of spec and plan together before the user approves the plan, with the two new checks and the coverage check; diff reviews after edits | Separate triage agent; skeleton review; per-milestone split review; consolidator; plan-writer agents |
 | Premise | Spike driver (Sonnet) concludes | For critical premises, the Opus advisor reads the evidence and the conclusion, and re-runs only the decisive experiment or an anomaly | Separate checker, designer and judge contexts; judge re-running everything |
-| Plan | Single plan writer (Opus) | One fresh Opus plan review (coverage, DAG and paths, checkable criteria); diff review after edits | Per-milestone split review, consolidator, plan-milestones claim research and revisions |
 | Milestone | Milestone lead (Opus) judges design and the implementer's output | Fresh contract verifier (Opus), dispatched by the orchestrator, independent of the lead | — |
 | Change | User code review | Retro over the transcripts | — |
 
-Keep: spec full and diff reviews and the skeleton-level coverage check, the
+Keep: the joint review with its coverage check, and diff reviews, the
 cheapest steps per real issue at about 50–85k tokens. Keep spikes for
 critical premises: both refutations so far were would-break.
 
@@ -242,19 +251,53 @@ critical premises: both refutations so far were would-break.
 
 ### Milestone lead and implementer
 
-- **Cache.** A subagent's cache lives 5 minutes (P3). Whenever a lead waits
-  more than 5 minutes for its implementer, the lead re-writes its whole
-  context at Opus cache-write price on its next turn. The user accepts this:
-  a persistent lead and implementer keep what they learned about the
-  milestone.
-- The lead keeps its context small: the milestone, the spec sections it
-  needs, and the implementer's hand-backs, not the implementer's file reads.
-- **Verifier per round.** A fresh verifier for each milestone. For a
-  re-verification round, the orchestrator resumes the same verifier when
-  the fix comes back within the cache window (P5), and dispatches a fresh
-  one otherwise. It reads the verifier's hand-back time and compares it
-  with now. The resumed verifier re-runs the full check and re-reads the
-  whole diff, not only its earlier findings.
+- **Persistence and waiting.**
+  - The main session receives its children's results and can resume them.
+    A subagent cannot (P6).
+  - So the persistent agent is the lead, resumed by the orchestrator.
+  - The lead calls each implementer in the foreground, which blocks until
+    that implementer hands back.
+- **Cache.** A subagent's cache lives 5 minutes (P3).
+  - Resuming a lead after a long verifier run re-writes its context at Opus
+    price, so the lead keeps its context small: the milestone, the spec
+    sections it needs, briefs and hand-backs, never the implementer's file
+    reads.
+  - A fresh implementer per piece of work re-reads the files it needs. The
+    brief names them.
+- **Verifier per round.**
+  - Each milestone gets a fresh verifier.
+  - For a re-verification round, the orchestrator resumes the same
+    verifier when the fix comes back within the cache window (P5), and
+    dispatches a fresh one otherwise. It takes the verifier's last hand-back
+    time from `.kentra-rpir/implement-state.json`.
+  - A resumed verifier re-runs the full check and re-reads the whole diff,
+    not only its earlier findings.
+
+### Lifecycle of the new artifacts
+
+- **Queue entries.**
+  - **Identity:** each job has an id, unique within its session queue.
+  - **Stale jobs:** a job marked running whose agent never reported back
+    counts as stale after `research.staleMinutes` (default 60). `next`
+    reclaims its slot, and the main session re-queues the job or drops it.
+- **Index rows.**
+  - **Identity:** a row is identified by claim plus subject@version.
+  - **Superseding:** a newer row for the same claim and subject supersedes
+    the older one, which stays as history.
+  - **Dangling paths:** a row whose report path is missing still counts.
+    Its conclusion is copied into the row, so the index alone answers the
+    question.
+- **Report slugs.** A slug that already exists gets a numeric suffix; a
+  report is never overwritten.
+- **Orchestrator state.**
+  - **What is recorded:** the implement orchestrator records each lead and
+    verifier agent id, with its last hand-back time, in
+    `.kentra-rpir/implement-state.json`.
+  - **After a session resume or compaction:** the orchestrator re-reads the
+    file. An agent it can no longer reach is replaced by a fresh one.
+- **Old-format changes.** A change started under 0.5.x (tier `full` or
+  `light`, separate spec and plan stages) finishes on 0.5.x. The new
+  version does not migrate it.
 
 ### Research pool
 

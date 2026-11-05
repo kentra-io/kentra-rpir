@@ -78,6 +78,7 @@ research/models-review-split-context.md, research/external/index.md):
 | P4 | A milestoned-plan-dag plan can hold coarse milestones with no steps. | critical | verified | milestoned-plan-dag branch `schema-0.4.0-no-steps` (e451450) removes `steps`; `go test ./...` passes and a plan with steps is rejected |
 | P5 | Most fix rounds come back within the 5-minute cache window, so a resumed verifier would usually hit cache. | normal | verified | 578be2d0: verifier hand-back → next verifier start was 3m17s (M19), 3m42s (M23), 9m43s (M22), 3m05s (M26), 1m05s and 0m48s (M25) |
 | P6 | A subagent can wait for a child it started in the background, or resumed with SendMessage, across the end of its own turn. | critical | refuted | probe 2026-11-05 (nest-probe2): the lead ended its turn after starting a background child and handed back at once; the child's result went to the main session, and the lead was never woken. A foreground Agent call blocks and returns the child's result |
+| P7 | A subagent can call an implementer in the foreground and block until it hands back. | critical | refuted | M3 build 2026-11-05: a subagent's Agent tool has no `run_in_background` parameter; the lead's implementer calls ran in the background and returned a launch notice. Their hand-backs reached the lead as messages while it was still working |
 
 ## Requirements
 
@@ -155,8 +156,8 @@ research/models-review-split-context.md, research/external/index.md):
    once.
 2. **Milestone lead.**
    - **Role:** the milestone lead (Opus) turns the coarse milestone into
-     concrete work. It runs Sonnet implementers as foreground subagents, a
-     fresh one for each piece of work, each from a brief. It reviews their
+     concrete work. It runs Sonnet implementers one at a time, a fresh one
+     for each piece of work, each from a brief. It reviews their
      output and hands the milestone back.
    - **Persistence:** the lead persists for the whole milestone. The
      orchestrator resumes it with SendMessage for fix rounds.
@@ -255,8 +256,10 @@ critical premises: both refutations so far were would-break.
   - The main session receives its children's results and can resume them.
     A subagent cannot (P6).
   - So the persistent agent is the lead, resumed by the orchestrator.
-  - The lead calls each implementer in the foreground, which blocks until
-    that implementer hands back.
+  - A lead's implementer runs in the background (P7). The lead keeps its
+    turn going until the implementer's hand-back arrives as a message. When
+    it must end its turn, it hands back `WAITING`, and the orchestrator,
+    which receives the implementer's result (P6), resumes the lead with it.
 - **Cache.** A subagent's cache lives 5 minutes (P3).
   - Resuming a lead after a long verifier run re-writes its context at Opus
     price, so the lead keeps its context small: the milestone, the spec

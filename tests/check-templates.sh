@@ -1,5 +1,5 @@
 #!/bin/sh
-# Pins the first line of each implement prompt template. The milestone
+# Pins the first line of the lead and verifier prompt templates. The milestone
 # graph mod (hooks/tracker.ts) maps Agent dispatches to milestones by
 # these lines, and hooks/test/tracker.test.ts holds them as constants:
 # the templates, the tracker, its test and this script change together.
@@ -12,7 +12,7 @@
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
-impl_line='You are implementing milestone M{{number}} `{{slug}}` of the change "{{title}}".'
+lead_line='You are leading milestone M{{number}} `{{slug}}` of the change "{{title}}".'
 verify_line='You are verifying milestone M{{number}} `{{slug}}` of the change "{{title}}".'
 test_file=hooks/test/tracker.test.ts
 config_file=templates/kentra-rpir.yaml
@@ -23,7 +23,10 @@ research.maxParallel
 research.maxLookups
 research.staleMinutes
 research.dir
-research.index'
+research.index
+roles.lead
+implement.maxParallel
+implement.cacheWindowMinutes'
 
 check_one() { # check_one <template file> <expected first line>
   if [ "$(head -n 1 "$1")" = "$2" ]; then
@@ -36,7 +39,7 @@ check_one() { # check_one <template file> <expected first line>
 
 check_dir() { # check_dir <dir>
   rc=0
-  check_one "$1/implementer-prompt.md" "$impl_line" || rc=1
+  check_one "$1/lead-prompt.md" "$lead_line" || rc=1
   check_one "$1/verifier-prompt.md" "$verify_line" || rc=1
   return $rc
 }
@@ -76,7 +79,7 @@ fi
 
 fails=0
 check_dir skills/implement || fails=1
-for line in "$impl_line" "$verify_line"; do
+for line in "$lead_line" "$verify_line"; do
   if grep -qF -- "$line" "$test_file"; then
     echo "ok   - $test_file holds: $line"
   else
@@ -90,13 +93,13 @@ done
 # depend on the real templates.
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/rpir-templates.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
-printf '%s\n' "$impl_line" > "$tmp/implementer-prompt.md"
+printf '%s\n' "$lead_line" > "$tmp/lead-prompt.md"
 { echo 'You are verifying milestone M{{number}} of the change "{{title}}".'
   tail -n +2 skills/implement/verifier-prompt.md; } > "$tmp/verifier-prompt.md"
 out=$(sh tests/check-templates.sh "$tmp" 2>&1)
 rc=$?
 if [ "$rc" -eq 1 ] && echo "$out" | grep -q 'FAIL - first line of .*verifier-prompt.md changed' \
-  && ! echo "$out" | grep -q 'FAIL - first line of .*implementer-prompt.md'; then
+  && ! echo "$out" | grep -q 'FAIL - first line of .*lead-prompt.md'; then
   echo "ok   - a changed template fails and is named"
 else
   echo "FAIL - self-test: changed verifier template gave exit $rc: $out"

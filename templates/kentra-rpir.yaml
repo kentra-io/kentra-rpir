@@ -6,7 +6,8 @@ spec:
   questionBatch: 5                  # max questions asked in one message
 roles:                              # agent: a subagent type; model: overrides the agent's own
   reviewer:    { agent: "kentra-rpir:reviewer",    model: opus }    # joint review of spec and plan, and diff reviews
-  implementer: { agent: "kentra-rpir:implementer", model: sonnet }
+  lead:        { agent: "kentra-rpir:lead",        model: opus }    # one per milestone; resumed for fix rounds
+  implementer: { agent: "kentra-rpir:implementer", model: sonnet }  # one per piece of work, dispatched by the lead
   verifier:    { agent: "kentra-rpir:verifier",    model: opus }
   impl-orchestrator: { model: opus }                              # the main session running implement
   retro:       { agent: "kentra-rpir:retro",       model: opus }    # synthesis, reconciliation, remediation
@@ -20,8 +21,10 @@ research:
   dir: docs/research                # reports from research outside an rpir change
   index: docs/research/index.jsonl  # project-wide index of findings, checked before any job starts
 implement:
-  maxAttempts: 3                    # per blocker: 2 re-dispatches with guidance, then the user
-  maxVerifyRounds: 3                # implement → verify → fix rounds per milestone
+  maxParallel: 3                    # milestones in progress at once: a lead each, from dispatch to merge
+  cacheWindowMinutes: 5             # a verifier is resumed for re-verification only this soon after its last hand-back
+  maxAttempts: 3                    # per blocker: 2 retries with new guidance, then the user
+  maxVerifyRounds: 3                # lead → verify → fix rounds per milestone
   worktreesDir: .worktrees          # relative to the project root; gitignored
   branchPrefix: rpir/
   openPullRequest: true             # only when the remote is GitHub and gh is authenticated

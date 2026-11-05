@@ -66,8 +66,11 @@ runs in the background from the first premise on.
   - A spec whose `tier` is `full` or `light` belongs to a change started
     under kentra-rpir 0.5.x, which finishes on 0.5.x. Stop and tell the
     user so.
-  - Otherwise resume at the step its state shows: `draft` at step 2,
-    `agreed` without a plan at step 7, `planned` at step 9.
+  - Otherwise resume at the step its state shows:
+    - `draft`: step 2;
+    - `agreed`: step 7 at the standard tier with no `plan.yaml` yet; step 8
+      at the small tier, or when `plan.yaml` exists;
+    - `planned`: step 9.
 - **A new change:** `<changesDir>/<today>-<slug>/`, the slug 2–4 kebab-case
   words. Copy the spec template into it as `spec.md`, with `status: draft`.
 - **Register this session:**
@@ -115,11 +118,14 @@ obvious, state it and go on. Write the tier into the spec's frontmatter.
 
 Load the `kentra-rpir:research` skill once, and queue every premise whose
 Evidence is `—` as a `premise` job, its question starting `critical:` or
-`normal:`. A critical premise gets a spike; a normal premise gets a docs
-check only. Official docs or source code at the version in question settle
-a premise on their own. A premise you can settle with a read or two of this
-repo or an official doc page, settle yourself: Evidence
-`docs: <URL or file:line@version>`.
+`normal:`. Every critical premise about an outside system is queued: it gets
+a spike and its advisor. A normal premise gets a docs check only. Official
+docs or source code at the version in question settle a premise on their
+own.
+
+Settle a premise yourself only when it is about this repo's own code, or
+when it is normal and a read or two of an official doc page settles it. Its
+Evidence is then `docs: <URL or file:line@version>`.
 
 Keep the conversation going while jobs run. On each job's Conclusion,
 update the premise's row:
@@ -268,8 +274,9 @@ When unsure, run a diff review. Dispatch a fresh reviewer as in step 8 with
 `mode` `diff`, the `decision` in plain words, and `diff_commands`: one
 `git diff --no-index "<reviewed>/<file>" "<change>/<file>"` per changed
 document (once committed: `git diff <last commit of the file> -- <file>`).
-Then copy the edited documents into `<reviewed>` again, and show the user
-the diff and any findings.
+Then copy the edited documents into `<reviewed>` again, show the user the
+diff, and act on the hand-back as in step 8: technical fixes, decisions and
+unchecked claims.
 
 Once the spec is `agreed`, its status stays `agreed` through every edit.
 
@@ -287,12 +294,13 @@ The user approves the plan; at the small tier, the reviewed spec. Then:
    commit anyway.
 4. Commit the change folder (spec, plan, planning log and research reports)
    with
-   `sh "${CLAUDE_PLUGIN_ROOT}/scripts/commit-change.sh" <change folder> "plan: <title>" [.kentra-rpir.yaml .gitignore]`,
-   passing `.kentra-rpir.yaml` and `.gitignore` when this session created or
-   changed them.
+   `sh "${CLAUDE_PLUGIN_ROOT}/scripts/commit-change.sh" <change folder> "plan: <title>" [<research.index> .kentra-rpir.yaml .gitignore]`,
+   passing as extra paths the `research.index` file when this session's
+   research jobs appended to it, and `.kentra-rpir.yaml` and `.gitignore`
+   when this session created or changed them.
 
-A later revision of an approved change goes through step 9 and commits with
-the message `plan: amend <title>`.
+A later revision of an approved change goes through step 9 and commits the
+same way, with the message `plan: amend <title>`.
 
 The stage is done when the change folder is committed and the spec says
 `status: planned`. End with one line:

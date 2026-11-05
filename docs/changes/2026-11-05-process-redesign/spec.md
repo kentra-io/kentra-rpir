@@ -1,7 +1,7 @@
 ---
 title: Leaner kentra-rpir — coarse plans, spike reports, milestone leads, lighter verification
 type: feature
-status: draft
+status: agreed
 tier: light
 issue:
 ---
@@ -164,7 +164,7 @@ research/models-review-split-context.md, research/external/index.md):
    command fails, or cannot run, somewhere is a correctness concern. Shipped
    in 0.5.4.
 
-### Area 4 — Research (proposed, pending the user's approval)
+### Area 4 — Research
 
 1. Research moves into kentra-rpir as one session-scoped research pool. It
    replaces both the `kentra-rpir:research` workflow and the user-level
@@ -181,6 +181,12 @@ research/models-review-split-context.md, research/external/index.md):
    research index. The index is checked before a job starts.
 5. `research.standalone: false` turns the pool off outside rpir stages, for
    users who keep their own research workflow.
+6. Lookups label every source with its kind (official docs, source code,
+   vendor benchmark, and so on), publisher, date and version. Reports say
+   which kind of source each conclusion rests on.
+7. The "Research workflows" section of the user's `~/.claude/CLAUDE.md`
+   stops referring to `~/.claude/workflows/research.js` and points to the
+   plugin's research pool.
 
 ### Cross-cutting
 
@@ -250,7 +256,7 @@ critical premises: both refutations so far were would-break.
   with now. The resumed verifier re-runs the full check and re-reads the
   whole diff, not only its earlier findings.
 
-### Research pool (proposed)
+### Research pool
 
 **Why not a workflow.** A running workflow cannot take new questions, and
 its agents cannot dispatch subagents (P1). So the pool is run by the main
@@ -261,10 +267,26 @@ session itself, dispatching background Agent-tool jobs, guided by a
 
 | Agent | Model | Does | Spawns |
 |---|---|---|---|
-| `lookup` | haiku | Finds one fact; returns sources with verbatim excerpts; no judgement | — |
+| `lookup` | haiku | Finds one fact; returns each source with a verbatim excerpt, its kind, publisher, date and the version it describes; no judgement | — |
 | `spike` | sonnet | Settles one premise: docs and source first, experiments if still open | `lookup`; `advisor` for critical premises |
 | `researcher` | opus | Answers one survey question; synthesises from lookup excerpts and fetches a source itself only on conflict or a missing version | `lookup`, in parallel |
 | `advisor` | opus | Second read of a spike's evidence and conclusion; re-runs only the decisive experiment | — |
+
+**Source credibility.** Every lookup labels each source with its kind:
+- official docs;
+- source code or a changelog;
+- standard or spec;
+- independent paper or benchmark;
+- vendor benchmark or marketing;
+- community post;
+- secondary summary.
+
+It also gives the publisher, the date and the version the source describes.
+The researcher, spike driver or advisor weighs each claim by that label,
+the date and the version match, and says in the report which kind of source
+each conclusion rests on. Official docs and source code settle a premise on
+their own (Area 2.3). A vendor-run benchmark or a secondary summary does
+not.
 
 **Sizing at intake.** The main session sizes each question with a short
 rubric:
@@ -325,7 +347,6 @@ research:
   no pilot against an advisor-on-demand setup.
 - Re-verification resumes the verifier within the cache window, and starts
   a fresh one otherwise.
+- Research merges into kentra-rpir as the session research pool (Area 4).
 
 ## Open questions
-
-1. The research pool proposal (Area 4 and Design "Research pool").

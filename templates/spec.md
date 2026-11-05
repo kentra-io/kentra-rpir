@@ -2,9 +2,9 @@
 title: <short name>
 type: feature            # feature | bug | chore
 status: draft            # draft | agreed | planned | implementing | in-review | done
-tier: full               # full | light — from .kentra-rpir.yaml's tier unless the user chose otherwise
+tier: standard           # small | standard — proposed by the planning session, confirmed by the user
 issue:                   # tracker link, when a tracker is configured
-planningLog: planning-log.jsonl   # trimmed spec and plan sessions, written when the plan is approved
+planningLog: planning-log.jsonl   # the trimmed planning session, written when the plan is approved
 ---
 
 ## Problem
@@ -24,19 +24,31 @@ behaviour, the expected behaviour, and how to reproduce it.>
 
 | # | Premise | Importance | Status | Evidence |
 |---|---|---|---|---|
-| P1 | <Something the change assumes is true.> | critical · normal | verified · refuted · unverified | docs: <URL or file:line@version> · spike: research/spikes/<slug>/ |
+| P1 | <Something the change assumes is true.> | critical · normal | verified · refuted · unverified | [research/<slug>.md](research/<slug>.md): <the source kinds it rests on> · docs: <URL or file:line@version> · — |
 
 ## Requirements
 
 1. <A plain, testable statement of behaviour.>
 
+## Layout
+
+<The directory layout of every new module or component, as a tree, with one
+line per directory on what lives there. "No new modules or components" when
+there are none.>
+
+## Abstractions
+
+<The main types and interfaces: each with its responsibility, what
+identifies its instances, and who uses it.>
+
 ## Design
 
 <The decisions and their rationale. For each decision with alternatives: the
-options considered, the one chosen, and why.>
+options considered, the one chosen, and why. For each version pin: the
+version and what the pin means (exact, minimum, or newest compatible).>
 
 ## Open questions
 
 <Must be empty at status: agreed.>
 
-<!-- writer-gaps: technical gaps self-review found and fixed, one per line -->
+<!-- writer-gaps: technical gaps the review found and fixed, one per line -->

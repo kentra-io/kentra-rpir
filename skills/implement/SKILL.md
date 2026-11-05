@@ -258,8 +258,9 @@ recorded `contract`. Then, per milestone that is not merged:
   its work is done. Tell a lead also that implementers it started before
   the resume are gone: it checks the branch for each piece's commit and
   briefs a fresh implementer for any unfinished work;
-- a milestone in phase `waiting` whose implementer report never arrives:
-  resume its lead with the same message about implementers that are gone;
+- a milestone in phase `waiting`, after a process resume: resume its lead
+  with the same message about implementers that are gone. After a
+  compaction the implementer is still running: keep waiting for its report;
 - an agent you need to reach (a lead for a fix round, a verifier within the
   cache window) that SendMessage cannot reach is replaced by a fresh one:
   - a fresh lead gets `guidance`: `An earlier lead worked on this milestone;

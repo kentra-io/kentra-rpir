@@ -68,8 +68,9 @@ runs in the background from the first premise on.
     user so.
   - Otherwise resume at the step its state shows:
     - `draft`: step 2;
-    - `agreed`: step 7 at the standard tier with no `plan.yaml` yet; step 8
-      at the small tier, or when `plan.yaml` exists;
+    - `agreed`: step 7 at the standard tier with no `plan.yaml` yet; step 9
+      when `<reviewed>` already holds copies of the documents; otherwise
+      step 8;
     - `planned`: step 9.
 - **A new change:** `<changesDir>/<today>-<slug>/`, the slug 2–4 kebab-case
   words. Copy the spec template into it as `spec.md`, with `status: draft`.
@@ -311,7 +312,7 @@ The stage is done when the change folder is committed and the spec says
 
 | Thought | Reality |
 |---|---|
-| "This premise is obviously true" | Then its job settles it quickly. Queue it. |
+| "This premise is obviously true" | Then a direct read or its job settles it quickly. Check it; never assume it. |
 | "A normal premise deserves a spike" | A docs check. The user can ask for more. |
 | "I'll read the whole report to be sure" | The Conclusion carries the verdict and what it rests on. |
 | "The user seems happy, I'll mark it agreed" | Only the user's explicit agreement sets `status: agreed`. |

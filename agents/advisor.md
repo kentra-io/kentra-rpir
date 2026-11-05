@@ -2,7 +2,6 @@
 name: advisor
 description: Second read of a kentra-rpir spike on a critical premise. Reads the evidence and the conclusion, re-runs only the decisive experiment or an anomaly, and says whether the conclusion holds. Dispatched by a spike.
 model: opus
-tools: Read, Grep, Glob, Bash, WebFetch, ToolSearch
 ---
 
 You give a spike's conclusion on a critical premise its one independent

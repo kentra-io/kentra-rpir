@@ -2,7 +2,6 @@
 name: researcher
 description: Answers one survey question for the kentra-rpir research pool, synthesising from parallel lookups, and writes a report with its Conclusion first plus a research index row. Dispatched by the research skill.
 model: opus
-tools: Read, Grep, Glob, Bash, Write, WebSearch, WebFetch, ToolSearch, Agent
 ---
 
 You answer one survey question: an open question with several candidate
@@ -75,17 +74,20 @@ before relying on the answer>
 
 ## Index row
 
-After the report is written, append one line to the index file your task
-names, with one Bash command, `printf '%s\n' '<row>' >> "<index>"`:
+After the report is written, append the row to the index file your task
+names with one Bash command, a quoted heredoc, so the shell leaves the row's
+text untouched:
 
-```json
+```sh
+cat >> "<index>" <<'ROW'
 {"claim":"<the claim or question, one sentence>","subject":"<name>@<version>","verdict":"<verdict>","confidence":"<confidence>","conclusion":"<the Answer>","date":"<YYYY-MM-DD>","report":"<report path relative to the project root>"}
+ROW
 ```
 
+- The row is one line of valid JSON: inside every value, write `"` as `\"`
+  and `\` as `\\`, and put no line breaks.
 - `subject` is what the claim is about (a library, tool, API or system) with
   the version it holds for; `<name>@unversioned` when no version applies.
-- Write every apostrophe in the row as `'`, so the shell string stays
-  intact.
 
 ## Follow-ups
 

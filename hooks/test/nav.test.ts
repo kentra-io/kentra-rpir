@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
-import { isArrowScroll, nextSelection } from '../nav'
+import { isArrowScroll, nextSelection, toolSummary } from '../nav'
 
 const PANE = 'rpir-graph'
 const FILES: Record<string, string> = {
@@ -129,4 +129,10 @@ test('ui.focus routing', async ($, on) => {
   expect(result).toEqual({})
   expect(landed).toEqual(['m-a', 'm-c'])
   expect(selectionOf(states)).toBe('c')
+})
+
+test('toolSummary names the implementer an Agent call waits on', () => {
+  expect(toolSummary('Agent', { description: 'Implement M2 store', prompt: 'long prompt' })).toBe('Agent: Implement M2 store')
+  expect(toolSummary('Agent', { prompt: 'no description' })).toBe('Agent')
+  expect(toolSummary('Bash', { command: 'ls' })).toBe('Bash: ls')
 })

@@ -11,40 +11,40 @@ const STATUSES: readonly Status[] = [
 ]
 
 // Pinned by tests/check-templates.sh against skills/implement/*-prompt.md line 1.
-const DISPATCH = /^You are (implementing|verifying) milestone M(\d+) `([^`]+)`/
+const DISPATCH = /^You are (implementing|verifying|leading) milestone M(\d+) `([^`]+)`/
 const OUTCOME_LINE =
-  /^[\s>*_`-]*(VERDICT|STATUS)[*_`]*\s*:\s*[*_`]*\s*(PASS|FAIL|DONE_WITH_CONCERNS|DONE|NEEDS_CONTEXT|BLOCKED)(?![A-Za-z0-9_])/
+  /^[\s>*_`-]*(VERDICT|STATUS)[*_`]*\s*:\s*[*_`]*\s*(PASS|FAIL|DONE_WITH_CONCERNS|DONE|NEEDS_CONTEXT|BLOCKED|WAITING)(?![A-Za-z0-9_])/
 const VERDICTS: readonly Outcome[] = ['PASS', 'FAIL']
 const MERGE_SHAPE = /\bgit\s[\s\S]*\bmerge\b[\s\S]*(?:^|\s)--no-ff(?=\s|$)/
 const MERGE_MESSAGE = /-m\s*["']Merge M(\d+)(?=[\s"'])/
 
-/** First line `You are implementing|verifying milestone M<n> \`<slug>\`` → its parts; anything else → null.
+/** First line `You are implementing|leading|verifying milestone M<n> \`<slug>\`` → its parts; anything else → null.
  *  Leading whitespace is ignored; only the first non-empty line counts. */
 export function parseDispatch(prompt: string): { number: number; slug: string; role: Role } | null {
   const line = prompt.split(/\r?\n/).map((l) => l.trim()).find((l) => l !== '')
   if (line === undefined) return null
   const m = DISPATCH.exec(line)
   if (m === null) return null
-  return { number: Number(m[2]), slug: m[3], role: m[1] === 'implementing' ? 'impl' : 'verify' }
+  return { number: Number(m[2]), slug: m[3], role: m[1] === 'verifying' ? 'verify' : 'impl' }
 }
 
 // The fallbacks for a dispatch whose prompt does not start with the template's
 // first line (an orchestrator that sent a pointer to a file, say): the prompt
 // file's name (".../m1-example-milestone.impl.1.md"), then the Agent call's
-// description ("Implement M1 example-milestone"). The description counts only
-// for the process's own agent types, so a helper agent described "Fix M3
-// merge conflict" is no milestone agent.
-const DESCRIPTION = /^\s*(?:[Rr]e-?)?(?:[Ii]mplement|[Ff]ix|[Vv]erify)\w*\s+M(\d+)\b[\s:.·—–-]*`?([a-z0-9]+(?:-[a-z0-9]+)*)`?/
-const PROMPT_FILE = /\bm(\d+)-([a-z0-9]+(?:-[a-z0-9]+)*)\.(impl|verify)\.\d+\.md\b/
+// description ("Implement M1 example-milestone", "Lead M1 example-milestone").
+// The description counts only for the process's own agent types, so a helper
+// agent described "Fix M3 merge conflict" is no milestone agent.
+const DESCRIPTION = /^\s*(?:[Rr]e-?)?(?:[Ii]mplement|[Ff]ix|[Vv]erify|[Ll]ead)\w*\s+M(\d+)\b[\s:.·—–-]*`?([a-z0-9]+(?:-[a-z0-9]+)*)`?/
+const PROMPT_FILE = /\bm(\d+)-([a-z0-9]+(?:-[a-z0-9]+)*)\.(impl|lead|verify)\.\d+\.md\b/
 
 /** A milestone dispatch: the prompt's first line (parseDispatch), else the
- *  prompt file it points to, else, for an implementer or verifier agent type,
+ *  prompt file it points to, else, for a lead, implementer or verifier agent type,
  *  its description. The agent type decides the role when it names one. */
 export function parseDispatchCall(call: DispatchCall): { number: number; slug: string; role: Role } | null {
   const direct = parseDispatch(call.prompt)
   if (direct !== null) return direct
   const type = call.subagentType ?? ''
-  const typed: Role | null = /verifier/.test(type) ? 'verify' : /implementer/.test(type) ? 'impl' : null
+  const typed: Role | null = /verifier/.test(type) ? 'verify' : /lead|implementer/.test(type) ? 'impl' : null
   const f = PROMPT_FILE.exec(call.prompt)
   if (f !== null) {
     const [, n, slug = '', tag] = f
@@ -66,7 +66,7 @@ export function callOf(input: Record<string, unknown>): DispatchCall {
   }
 }
 
-/** The last `VERDICT: PASS|FAIL` or `STATUS: DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED`
+/** The last `VERDICT: PASS|FAIL` or `STATUS: DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED|WAITING`
  *  line in a subagent's final text (markdown bold/backticks around it tolerated), or null. */
 export function parseOutcome(text: string): Outcome | null {
   let found: Outcome | null = null
@@ -98,6 +98,25 @@ function findAgent(state: RunState, agentId: string | null, toolUseId: string | 
     for (const a of Object.values(state.agents)) if (a.toolUseId === toolUseId) return a
   }
   return null
+}
+
+function activeStart(a: AgentRun): number {
+  return a.resumedAt ?? a.startedAt
+}
+
+/** A resume counts as a new round only when another agent of the milestone ran since this one ended. */
+function reopen(state: RunState, a: AgentRun, at: number): AgentRun {
+  if (a.endedAt === null) return a
+  const endedAt = a.endedAt
+  const ranSince = (state.milestones[a.slug]?.agents ?? []).some((id) => {
+    const o = state.agents[id]
+    return id !== a.agentId && o !== undefined && activeStart(o) >= endedAt
+  })
+  if (!ranSince) return { ...a, endedAt: null }
+  return {
+    ...a, pastMs: (a.pastMs ?? 0) + endedAt - activeStart(a), resumedAt: at, rounds: (a.rounds ?? 0) + 1,
+    outcome: null, endedAt: null,
+  }
 }
 
 function withAgent(state: RunState, agent: AgentRun): RunState {
@@ -133,14 +152,14 @@ export function reduce(state: RunState, ev: TrackerEvent): RunState {
       // A tool call means the agent is running, even after one of its turns ended.
       const a = state.agents[ev.agentId]
       if (a === undefined || (a.lastTool === ev.summary && a.endedAt === null)) return state
-      return withAgent(state, { ...a, lastTool: ev.summary, endedAt: null })
+      return withAgent(state, { ...reopen(state, a, ev.at), lastTool: ev.summary })
     }
     case 'resume': {
       // A subagent runs one turn per wake-up (say, after a background shell
       // finished): a new turn reopens an agent an earlier turn's end closed.
       const a = state.agents[ev.agentId]
       if (a === undefined || a.endedAt === null) return state
-      return withAgent(state, { ...a, endedAt: null })
+      return withAgent(state, reopen(state, a, ev.at))
     }
     case 'agentDone': {
       const a = findAgent(state, ev.agentId, ev.toolUseId)
@@ -181,27 +200,30 @@ export function reduce(state: RunState, ev: TrackerEvent): RunState {
 }
 
 function span(a: AgentRun, now: number): number {
-  return Math.max(0, (a.endedAt ?? now) - a.startedAt)
+  return Math.max(0, (a.pastMs ?? 0) + (a.endedAt ?? now) - activeStart(a))
 }
 
-function statusOf(state: RunState, slug: string, ms: MilestoneRun | undefined, agents: AgentRun[]): Status {
+function statusOf(
+  state: RunState, slug: string, ms: MilestoneRun | undefined, agents: AgentRun[],
+  running: AgentRun | null, last: AgentRun | null,
+): Status {
   if (ms !== undefined && ms.mergedAt !== null) return 'merged'
-  let runningIdx = -1
-  for (let i = agents.length - 1; i >= 0; i--) if (agents[i].endedAt === null) { runningIdx = i; break }
-  if (runningIdx >= 0) {
-    const running = agents[runningIdx]
+  if (running !== null) {
     if (running.role === 'verify') return 'verifying'
-    const failedBefore = agents.slice(0, runningIdx).some((a) => a.role === 'verify' && a.outcome === 'FAIL')
+    const runningIdx = agents.indexOf(running)
+    const failedBefore = agents.some((a, i) =>
+      a.role === 'verify' && a.outcome === 'FAIL' && a.endedAt !== null &&
+      (i < runningIdx || a.endedAt <= activeStart(running)))
     return failedBefore ? 'fixing' : 'implementing'
   }
-  const last = agents[agents.length - 1]
-  if (last !== undefined) {
+  if (last !== null) {
     // Nothing of this milestone runs: it waits on the orchestrator.
     if (last.role === 'verify') {
       if (last.outcome === 'PASS') return 'passed'   // awaiting merge
-      if (last.outcome === 'FAIL') return 'failed'   // awaiting a fix dispatch
+      if (last.outcome === 'FAIL') return 'failed'   // awaiting a fix round
       return 'verified'                              // awaiting the verdict read
     }
+    if (last.role === 'impl' && last.outcome === 'WAITING') return 'implementing'   // lead waits on its own implementer
     if (last.outcome === 'BLOCKED' || last.outcome === 'NEEDS_CONTEXT') return 'stuck'
     return 'implemented'                             // DONE, DONE_WITH_CONCERNS or none: awaiting verify
   }
@@ -220,18 +242,23 @@ export function viewOf(state: RunState, slug: string, now: number): MilestoneVie
   const impl = agents.filter((a) => a.role === 'impl')
   const verify = agents.filter((a) => a.role === 'verify')
   let running: AgentRun | null = null
-  for (let i = agents.length - 1; i >= 0; i--) if (agents[i].endedAt === null) { running = agents[i]; break }
-  const last = agents.length > 0 ? agents[agents.length - 1] : null
+  let last: AgentRun | null = null
+  for (const a of agents) {
+    if (a.endedAt === null) {
+      if (running === null || activeStart(a) >= activeStart(running)) running = a
+    } else if (last === null || a.endedAt >= (last.endedAt ?? 0)) last = a
+  }
+  const shown = running ?? last
   return {
-    status: statusOf(state, slug, ms, agents),
+    status: statusOf(state, slug, ms, agents, running, last),
     implMs: impl.reduce((t, a) => t + span(a, now), 0),
     verifyMs: verify.reduce((t, a) => t + span(a, now), 0),
-    attempts: impl.length,
-    verifyRounds: verify.length,
+    attempts: impl.reduce((t, a) => t + 1 + (a.rounds ?? 0), 0),
+    verifyRounds: verify.reduce((t, a) => t + 1 + (a.rounds ?? 0), 0),
     wallMs: ms !== undefined && ms.mergedAt !== null ? ms.mergedAt - ms.firstDispatchAt : null,
     currentTool: running?.lastTool ?? null,
     runningAgentId: running?.agentId ?? null,
-    lastAgentId: last?.agentId ?? null,
+    lastAgentId: shown?.agentId ?? null,
   }
 }
 
@@ -325,6 +352,10 @@ export function reconcile(
   live: LiveAgents = {},
 ): RunState {
   let s = state
+  // The engine says it runs: a hand-back the transcript holds is an earlier round's.
+  const end = (id: string, outcome: Outcome | null) => {
+    if (live[id] !== 'running') s = endAgent(s, id, outcome, now)
+  }
   const order = new Map<string, number>()
   for (const r of rows) {
     if (r.role === 'assistant') {
@@ -340,7 +371,7 @@ export function reconcile(
           }
           // A foreground call's answer is the report; a background one's is the launch notice.
           if (u.text !== undefined && !LAUNCH_NOTICE.test(u.text) && u.input.run_in_background !== true) {
-            s = endAgent(s, id, parseOutcome(u.text), now)
+            end(id, parseOutcome(u.text))
           }
         } else if (u.tool === 'Bash' && typeof u.input.command === 'string' && u.text !== undefined && u.isError !== true) {
           s = reduce(s, { kind: 'bash', command: u.input.command, isError: false, at: now })
@@ -349,14 +380,14 @@ export function reconcile(
     } else {
       const marks = [...r.text.matchAll(HANDBACK)]
       marks.forEach((m, i) => {
-        const end = i + 1 < marks.length ? marks[i + 1].index : r.text.length
-        s = endAgent(s, m[1], parseOutcome(r.text.slice(m.index, end)), now)
+        const stop = i + 1 < marks.length ? marks[i + 1].index : r.text.length
+        end(m[1], parseOutcome(r.text.slice(m.index, stop)))
       })
       for (const n of r.text.matchAll(NOTIFICATION)) {
         const body = n[1] ?? ''
         const id = TASK_ID.exec(body)?.[1]
         if (id !== undefined && TASK_DONE.test(body) && !TASK_INTERIM.test(body.replace(TASK_RESULT, ''))) {
-          s = endAgent(s, id, parseOutcome(body.replace(/<[^>]*>/g, '\n')), now)
+          end(id, parseOutcome(body.replace(/<[^>]*>/g, '\n')))
         }
       }
     }
@@ -364,7 +395,7 @@ export function reconcile(
   for (const [id, phase] of Object.entries(live)) {
     const a = s.agents[id]
     if (a === undefined) continue
-    if (phase === 'running' && a.endedAt !== null) s = withAgent(s, { ...a, endedAt: null })
+    if (phase === 'running' && a.endedAt !== null) s = withAgent(s, reopen(s, a, now))
     if (phase === 'ended') s = endAgent(s, id, null, now)
   }
   // Each milestone's agents in transcript order, so "the newest agent" is the newest dispatch.

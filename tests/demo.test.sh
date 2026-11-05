@@ -34,6 +34,7 @@ check "sh check.sh prints ok" test "$(cd "$project" && sh check.sh)" = ok
 spec="$project/docs/changes/2026-10-16-demo-diamond/spec.md"
 cfg="$project/.kentra-rpir.yaml"
 check "spec is status: planned" grep -qx 'status: planned' "$spec"
+check "Haiku lead" grep -qF 'lead:        { agent: "kentra-rpir:lead",        model: haiku }' "$cfg"
 check "Haiku implementer" grep -qF 'implementer: { agent: "kentra-rpir:implementer", model: haiku }' "$cfg"
 check "Haiku verifier" grep -qF 'model: haiku }' "$cfg"
 check "no pull request" grep -qF 'openPullRequest: false' "$cfg"

@@ -453,7 +453,7 @@ if (!remediation) throw new Error('spec-retro: remediation returned no result')
 // 5. Write
 const written = await agent(`${ONLY_JOB}
 
-Write ${args.out} following the template ${args.template}. Fill every section from the JSON below; do not add findings of your own. Write nothing else.
+Write ${args.out} following the template ${args.template}. Fill every section from the JSON below; do not add findings of your own. A null field in it was not measured: write — for it. Write nothing else.
 
 Header facts: change ${args.changeDir}; commits ${args.milestones.map(m => m.diffRange).join(', ')}; tier ${args.plan ? 'standard' : 'small'}; models ${models}; kentra-rpir ${args.versions?.plugin || 'unknown'}; Claude Code ${claudeCodeVersion}; sessions ${args.sessions.map(s => s.missing ? `${s.id}: ${s.stage} (transcript missing)` : `${s.id}: ${s.stage}`).join(', ')}.
 ${missing.length ? `Missing transcripts — list these in Open questions too: ${missing.map(s => `${s.id}: ${s.stage} (transcript missing)`).join(', ')}` : ''}
@@ -461,7 +461,7 @@ ${missing.length ? `Missing transcripts — list these in Open questions too: ${
 Readers (timelines): ${readsJson}
 Planning cost (JSON): ${JSON.stringify(planning)}
 Research (JSON): ${JSON.stringify(synthesis.research || [])}
-Implementation cost (JSON): ${implementationJson} A null field was not measured; write — for it.
+Implementation cost (JSON): ${implementationJson}
 Synthesis: ${JSON.stringify(synthesis)}
 Reconciliation (only the contradicted and unsupported claims; ${confirmedCount} other claims were confirmed): ${JSON.stringify(notConfirmed)}
 Remediation: ${JSON.stringify(remediation)}

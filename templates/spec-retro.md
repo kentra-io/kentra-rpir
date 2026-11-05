@@ -1,7 +1,7 @@
 # Retro — <title>
 
-- **Change:** <folder> · **Commits:** <base>..<head>
-- **Models:** <role: model, for every role used>
+- **Change:** <folder> · **Tier:** small · standard · **Commits:** <base>..<head>
+- **Models:** <role: model, for every role used, in the change and in this retro>
 - **Versions:** kentra-rpir <version> · Claude Code <version> · skills <name@version, …>
 - **Sessions read:** <session id: stage, for every session>
 
@@ -11,19 +11,30 @@
 
 ## Planning cost
 
-| Session | Workflow | Stage · mode | Duration | Agents | Tokens | Status |
-|---|---|---|---|---|---|---|
-| <sid> | self-review | spec · full | <m.m> min | <n> | <n> | completed |
+| Session | Part | Role | Agents | Fresh tokens | Time |
+|---|---|---|---|---|---|
+| <sid> | before the plan skill | main session | — | <n> | <m.m> min wall |
+| <sid> | before the plan skill | <role> | <n> | <n> | <m.m> min |
+| <sid> | plan stage | main session | — | <n> | <m.m> min wall |
+| <sid> | plan stage | reviewer · full · diff · lookup · fact job · spike · researcher · lookup · nested · advisor · other | <n> | <n> | <m.m> min |
 
-Question rounds: <n> · Status resets: <n> · Full reviews: spec <n>, plan <n> · Diff reviews: <n> · Workflow time: <m> min of <m> min wall
+Plan skill loaded at <ref>; work before it is not planning cost. Question rounds: <n> · Status resets: <n> · Reviews: full <n>, diff <n> · Research jobs: fact <n>, premise <n>, survey <n>
+
+## Research
+
+| Report | Kind | Verdict · confidence | Rests on | Held up | Evidence |
+|---|---|---|---|---|---|
+| <research/slug.md> | fact · premise · survey | verified · refuted · unverified · <high · medium · low> | <source kinds from its Conclusion> | held · contradicted · not tested | <ref where the implementation bore it out or broke it> |
+
+<"No research jobs ran." when the table is empty.>
 
 ## Implementation cost
 
-| Milestone | Implementer dispatches | Verify rounds | Fresh tokens | Wall |
-|---|---|---|---|---|
-| M<n> <slug> | <n> | <n> | <n> | <m.m> min |
+| Milestone | Lead rounds | Implementers | Verify rounds (fresh / resumed) | Waits | Fresh tokens: lead / implementers / verifiers | Wall |
+|---|---|---|---|---|---|---|
+| M<n> <slug> | <n> | <n> | <n> (<n> / <n>) | <n> | <n> / <n> / <n> | <m.m> min |
 
-Orchestrator: <n> fresh tokens · <m> min wall. Fresh tokens = input + cache writes + output, each message counted once; the planning workflow totals above use the harness's own count, so compare within a table, not across tables. — means not measured.
+Orchestrator: <n> fresh tokens · <m> min wall. Fresh tokens = input + cache writes + output, each message counted once, in both cost tables. Time in the Planning cost table sums each agent's own span, so agents that overlap count twice. — means not measured.
 
 ## Self-report reconciliation
 
@@ -34,6 +45,12 @@ Orchestrator: <n> fresh tokens · <m> min wall. Fresh tokens = input + cache wri
 <n> other claims confirmed. · All <n> claims confirmed.
 
 ## Timeline
+
+### Planning
+
+| Step | Ref | Event |
+|---|---|---|
+| <n> | <session>:<line> | <what happened> **(decisive)** |
 
 ### M<n> <slug>
 

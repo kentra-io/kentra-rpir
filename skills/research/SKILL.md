@@ -67,7 +67,7 @@ For each question, in turn:
    experiments. Official docs or source code at the version in question
    settle a premise on their own.
 3. **Queue it:**
-   `Queue add --dir <report dir> <fact|premise|survey> <slug> "<question>"`.
+   `Queue add --dir <absolute report dir> <fact|premise|survey> <slug> "<question>"`.
    - The slug is 2–5 kebab-case words.
    - The question is one line: the claim or question with its version, then
      ` — ` and why the work depends on it. A premise's question starts with

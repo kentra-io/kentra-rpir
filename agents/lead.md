@@ -40,7 +40,8 @@ milestone, the spec sections you need, your briefs and the hand-backs.
      tool calls, but only while your turn is still going. Keep the turn
      going with waits of one Bash call each, looking for the message after
      every wait. While HEAD is still at the piece's base, wait for the
-     implementer's commit, at most 240 s so your cache stays warm:
+     implementer's commit, at most 240 s so your cache stays warm. Run it
+     with the Bash `timeout` at 300000:
 
      ```sh
      cd <worktree> && i=0

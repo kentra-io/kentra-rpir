@@ -345,9 +345,10 @@ milestones:
       - F13: maxParallel;
       - F19: pins as a planning question.
 
-      The repo's own `.kentra-rpir.yaml` moves to the new keys.
+      The repo's own `.kentra-rpir.yaml` moves to the new keys, and the
+      `description` in `.claude-plugin/plugin.json` describes the new process.
     deliverables: |
-      docs/process.md; README.md; docs/retro-backlog.md; .kentra-rpir.yaml.
+      docs/process.md; README.md; docs/retro-backlog.md; .kentra-rpir.yaml; .claude-plugin/plugin.json description.
     contract:
       check: "command -v claude >/dev/null && sh tests/run.sh"
       criteria:
@@ -361,6 +362,7 @@ milestones:
         - README.md
         - docs/retro-backlog.md
         - .kentra-rpir.yaml
+        - .claude-plugin/plugin.json
     depends-on:
       - retro
 

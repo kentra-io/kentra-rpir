@@ -9,12 +9,6 @@ Source: `schema-management-design/docs/changes/2026-11-02-proto3-schema-librarie
 
 ## Open
 
-- **F9 — Verifier red check.** Implementers skipped step order and red runs
-  (M2, M7, M8, M17), even after the orchestrator added "do every step in order"
-  to the dispatch wrapper. Proposed: the verifier runs the milestone's new tests
-  at the base and expects them to fail. Open question first: whether red runs
-  are wanted at all (see "Red-green" below). Issue #22 covers the implementer
-  side.
 - **F10 — Hand-back evidence.** Implementers reported what a check should do
   rather than what it did (M4 claimed buf was skipped; M17's exit status was
   redirected away). Proposed: `agents/implementer.md` requires the exit status
@@ -43,15 +37,4 @@ Source: `schema-management-design/docs/changes/2026-11-02-proto3-schema-librarie
   Proposed: `scripts/handbacks.sh` extracts the hand-back blocks verbatim per
   milestone for implement step 5.2.
 - **Filed issues not shipped.** Issues #19–#22 from the proto-to-avro retro
-  are still open; three of their classes recurred in this change (F3/F6, F9,
-  F1/F2).
-
-## Red-green
-
-kentra-rpir itself does not ask for red runs. They come from the
-milestoned-plan-dag `plan-author` skill ("write the failing test, run it and
-see it fail, write the code, run it and see it pass, commit"), which plan
-writers follow, and from guidance an orchestrator added to its dispatch
-wrapper. The user rejected test-first ordering and mutation-named criteria in
-plan writers (proposed as F2 of this retro). Decide whether plans keep red
-runs before reopening F9 or issue #22.
+  are still open; three of their classes recurred in this change.

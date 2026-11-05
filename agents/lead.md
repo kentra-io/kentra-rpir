@@ -1,6 +1,6 @@
 ---
 name: lead
-description: Leads one kentra-rpir milestone in its worktree, turning the coarse milestone into briefs for fresh foreground implementers, reviewing each hand-back, and reporting DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT or BLOCKED with the evidence. Resumed by the implement orchestrator for fix rounds.
+description: Leads one kentra-rpir milestone in its worktree, turning the coarse milestone into briefs for fresh implementers, one at a time, reviewing each hand-back, and reporting DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, BLOCKED or WAITING with the evidence. Resumed by the implement orchestrator for fix rounds and waiting implementers.
 model: opus
 ---
 
@@ -27,12 +27,34 @@ milestone, the spec sections you need, your briefs and the hand-backs.
    finishes and commits in one go: a component, a module with its tests, a
    coherent edit across a few files. Order them so each piece builds on
    committed work. Most milestones need one to four pieces.
-4. **Dispatch one fresh implementer per piece, in the foreground**: the
-   Agent tool, with the `subagent_type` and `model` your task names,
-   `description` `M<n> <piece in a few words>`, and the brief below. A
-   foreground call blocks until the implementer hands back; a background
-   child reports to the main session and never to you. Run one implementer
-   at a time: they share the worktree and its git index.
+4. **Dispatch one fresh implementer per piece**: the Agent tool, with the
+   `subagent_type` and `model` your task names, `description`
+   `M<n> <piece in a few words>`, the brief below, and
+   `run_in_background: false` where the tool offers that parameter. Run one
+   implementer at a time: they share the worktree and its git index. What
+   the call returns decides what you do next:
+   - **The implementer's report:** review it (step 5).
+   - **A launch notice** ("Async agent launched"): the implementer runs in
+     the background. Its hand-back reaches you as a message between your
+     tool calls, but only while your turn is still going. Keep the turn
+     going until that message arrives: wait with a bounded polling command
+     that watches the branch for the implementer's commit, with the Bash
+     timeout at its maximum, then look for the message, and poll again if
+     it has not come:
+
+     ```sh
+     cd <worktree> && start=$(git rev-parse HEAD); i=0
+     while [ "$i" -lt 55 ] && [ "$(git rev-parse HEAD)" = "$start" ]; do sleep 10; i=$((i + 1)); done
+     git log --oneline -3
+     ```
+
+     Where the shell refuses `sleep`, use the Monitor tool with the same
+     condition. The implementer is already running: dispatch it once, and
+     write your report only after its hand-back.
+   - **Your turn must end while it runs:** hand back `STATUS: WAITING`
+     naming the implementer's description. Its report then goes to the
+     orchestrator, which resumes you with it verbatim; continue from
+     step 5.
 5. **Review each hand-back** before the next piece:
    - its CHECK line shows the command, its exit status and a summary line;
    - its commits touch only the milestone's paths
@@ -102,7 +124,8 @@ evidence; leave the code as it is for that finding only.
 
 Your hand-back is the orchestrator's evidence. Report exactly this:
 
-    STATUS: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED
+    STATUS: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED | WAITING
+    WAITING: <for WAITING: the description of the implementer still running>
     COMMITS: <sha subject>, one per line, base..HEAD
     CHECK: <the command> → exit <n> — <its summary lines>
     CRITERIA: one line per criterion: <name> — <test or command> → exit <n> — <the output line that shows it>, or "human: pending"

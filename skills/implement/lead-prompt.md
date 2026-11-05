@@ -41,5 +41,7 @@ Dispatch implementers with `subagent_type` `{{implementer_agent}}` and
 Hand back once `{{check}}` passes on `{{branch}}` with every piece committed,
 in the format your agent definition gives: STATUS, COMMITS, CHECK, CRITERIA,
 IMPLEMENTERS, then DECISIONS, CONCERNS, QUESTION, BLOCKER or OBSERVED as they
-apply. The orchestrator may resume you with a verifier's findings; each
-resumed round ends with a hand-back in the same format.
+apply. An implementer still running when your turn must end makes it
+`STATUS: WAITING`. The orchestrator resumes you with a verifier's findings
+or a waiting implementer's report; each resumed round ends with a hand-back
+in the same format.

@@ -72,6 +72,8 @@ test('parseOutcome and parseMerge', () => {
   expect(parseOutcome('**VERDICT:** FAIL')).toBe('FAIL')
   expect(parseOutcome('STATUS: BLOCKED\nretried\nSTATUS: DONE')).toBe('DONE')
   expect(parseOutcome('VERDICT: DONE')).toBeNull()
+  expect(parseOutcome('STATUS: WAITING\nWAITING: M2 store schema')).toBe('WAITING')
+  expect(parseOutcome('VERDICT: WAITING')).toBeNull()
   expect(parseOutcome('the STATUS: DONE line is missing')).toBeNull()
   expect(parseOutcome('no report here')).toBeNull()
 
@@ -356,6 +358,16 @@ test('Lead M2 dispatch then Verify M2 dispatch', () => {
   expect(viewOf(s, 'store', 2000).status).toBe('implementing')
   s = apply(s, [done('l2', 'STATUS: DONE', 3000), spawn('v2', verifyPrompt(2, 'store'), 4000)])
   expect(viewOf(s, 'store', 5000).status).toBe('verifying')
+})
+
+test('a lead that ends WAITING stays implementing across its resume, in one round', () => {
+  let s = apply(withPlan(planOf([[2, 'store', []]])), [spawn('l2', implPrompt(2, 'store'), 1000)])
+  s = apply(s, [done('l2', 'STATUS: WAITING\nWAITING: M2 store schema', 2000)])
+  expect(viewOf(s, 'store', 2500).status).toBe('implementing')
+  s = apply(s, [resume('l2', 3000)])
+  expect(viewOf(s, 'store', 3500)).toMatchObject({ status: 'implementing', attempts: 1 })
+  s = apply(s, [done('l2', 'STATUS: DONE', 4000)])
+  expect(viewOf(s, 'store', 4500).status).toBe('implemented')
 })
 
 test('a description-only Lead M2 store dispatch is recognised', () => {

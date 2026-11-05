@@ -19,6 +19,12 @@ research:
   checker: sonnet
   designer: opus
   reasoner: opus
+  standalone: true                  # false: the research skill runs only inside an rpir stage
+  maxParallel: 4                    # research jobs running at once in one session
+  maxLookups: 4                     # lookups one job runs at once
+  staleMinutes: 60                  # a running job older than this loses its slot
+  dir: docs/research                # reports from research outside an rpir change
+  index: docs/research/index.jsonl  # project-wide index of findings, checked before any job starts
 implement:
   maxAttempts: 3                    # per blocker: 2 re-dispatches with guidance, then the user
   maxVerifyRounds: 3                # implement → verify → fix rounds per milestone

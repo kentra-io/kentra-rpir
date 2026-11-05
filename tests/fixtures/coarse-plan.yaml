@@ -1,0 +1,112 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kentra-io/milestoned-plan-dag/v0.4.0/schema/plan.schema.json
+schemaVersion: 0.4.0
+description: |
+  Builds `confx`, a small CLI that reads a config file and exports it as JSON
+  or YAML. Read the repository first; each milestone is a contract with its
+  scope, interfaces and criteria, and the implementer decides how.
+
+  **The check.** `go test ./...` is the standard check, and every milestone
+  keeps it green.
+
+  **Requirement map.**
+  - R1 parse a config file: milestone 1.
+  - R2 export as JSON: milestone 2.
+  - R3 export as YAML: milestone 3.
+milestones:
+  - number: 1
+    slug: parser
+    goal: "A config file parses into a typed Config value"
+    description: |
+      Why: both exporters read the same parsed value, so it exists first.
+
+      Scope: `internal/config/`.
+
+      Interfaces provided:
+      - `config.Config`, a struct with `Name string` and `Values map[string]string`;
+      - `config.Parse(r io.Reader) (Config, error)`.
+
+      Interfaces used: none.
+
+      Decisions: the input format is `key=value` lines; blank lines and lines
+      starting with `#` are skipped.
+
+      Risks: PL1, the premise that the standard library alone parses this
+      format. If it is refuted, add a parser library pinned to an exact version.
+    deliverables: |
+      internal/config/config.go; internal/config/config_test.go.
+    contract:
+      check: "go test ./..."
+      criteria:
+        - name: internal/config/config_test.go::TestParseReadsKeyValueLines
+          given: "a reader holding two key=value lines and a comment line"
+          when: "Parse runs"
+          then: "Config.Values holds both pairs and the comment is ignored"
+        - name: internal/config/config_test.go::TestParseRejectsMalformedLine
+          given: "a reader holding a line without an equals sign"
+          when: "Parse runs"
+          then: "it returns an error naming the line number"
+      paths:
+        - internal/config/**
+  - number: 2
+    slug: json-export
+    goal: "Config exports as JSON"
+    description: |
+      Why: R2, the first output format.
+
+      Scope: `internal/export/json/`.
+
+      Interfaces provided: `jsonexport.Write(w io.Writer, c config.Config) error`.
+
+      Interfaces used: `config.Config` from milestone 1.
+
+      Decisions: keys are written in sorted order so output is stable.
+
+      Risks: PL2, the premise that the standard library encoder sorts map keys.
+    deliverables: |
+      internal/export/json/json.go; internal/export/json/json_test.go.
+    contract:
+      check: "go test ./..."
+      criteria:
+        - name: internal/export/json/json_test.go::TestWriteSortsKeys
+          given: "a Config whose values were inserted out of order"
+          when: "Write runs"
+          then: "the JSON object lists the keys in sorted order"
+        - name: "human: sample output"
+          then: "the JSON output of a sample file reads as expected to a maintainer"
+      paths:
+        - internal/export/json/**
+    depends-on:
+      - parser
+  - number: 3
+    slug: yaml-export
+    goal: "Config exports as YAML"
+    description: |
+      Why: R3, the second output format.
+
+      Scope: `internal/export/yaml/`.
+
+      Interfaces provided: `yamlexport.Write(w io.Writer, c config.Config) error`.
+
+      Interfaces used: `config.Config` from milestone 1.
+
+      Decisions: output is block style, one key per line.
+
+      Risks: PL2 also covers key ordering here; the YAML encoder is checked
+      the same way.
+    deliverables: |
+      internal/export/yaml/yaml.go; internal/export/yaml/yaml_test.go.
+    contract:
+      check: "go test ./..."
+      criteria:
+        - name: internal/export/yaml/yaml_test.go::TestWriteEmitsBlockStyle
+          given: "a Config with two values"
+          when: "Write runs"
+          then: "each key appears on its own line in sorted order"
+      paths:
+        - internal/export/yaml/**
+    depends-on:
+      - parser
+
+# premises:
+#   PL1 | normal | verified | go doc bufio.Scanner, 2026-11-05 | the standard library parses key=value lines without a dependency
+#   PL2 | critical | unverified | none yet | the standard JSON and YAML encoders write map keys in sorted order

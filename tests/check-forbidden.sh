@@ -11,7 +11,15 @@ self="$PWD/tests/check-forbidden.sh"
 # One extended regular expression per line, matched case-insensitively; append a line to add a term.
 terms='(^|[^a-z])red[-/ ]green
 (^|[^a-z])red runs?([^a-z]|$)
-(^|[^a-z])test[- ]first'
+(^|[^a-z])test[- ]first
+kentra-rpir:spec([^-a-z]|$)
+plan-milestones
+self-review\.js
+research\.js([^a-z]|$)
+assemble-plan
+plan-writer
+research\.workflow
+research\.checker'
 
 check_root() { # check_root <root>
   dirs=
@@ -73,13 +81,26 @@ else
 fi
 
 mkdir -p "$tmp/words/skills"
-printf 'An ignored run.\nShow the latest first.\n' > "$tmp/words/skills/words.md"
+printf 'An ignored run.\nShow the latest first.\nRun /kentra-rpir:spec-retro after review.\nSee research/index.jsonl.\n' > "$tmp/words/skills/words.md"
 out=$(sh "$self" "$tmp/words" 2>&1)
 rc=$?
 if [ "$rc" -eq 0 ]; then
-  echo "ok   - 'ignored run' and 'latest first' pass"
+  echo "ok   - 'ignored run', 'latest first', 'spec-retro' and 'research/index.jsonl' pass"
 else
-  echo "FAIL - self-test: 'ignored run' and 'latest first' gave exit $rc: $out"
+  echo "FAIL - self-test: near-miss words gave exit $rc: $out"
+  fails=1
+fi
+
+mkdir "$tmp/removed"
+cp -R skills "$tmp/removed/skills"
+target=$(find "$tmp/removed/skills" -type f | head -n 1)
+echo 'Run /kentra-rpir:spec to start.' >> "$target"
+out=$(sh "$self" "$tmp/removed" 2>&1)
+rc=$?
+if [ "$rc" -eq 1 ] && echo "$out" | grep -qF "$target"; then
+  echo "ok   - a planted /kentra-rpir:spec fails and its file is named"
+else
+  echo "FAIL - self-test: planted /kentra-rpir:spec gave exit $rc: $out"
   fails=1
 fi
 

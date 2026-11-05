@@ -150,6 +150,35 @@ check "add does not create the report file" test ! -e "$rdir/fresh.md"
 out=$(q add --session "$C" --dir "$rdir" fact fresh "q")
 checkeq "first free suffix skips disk and queue collisions" "$out" "5${tab}$rdir/fresh-3.md"
 
+# Two sessions adding the same slug to one --dir get different report paths.
+out=$(q add --session sessC2 --dir "$rdir" fact shared "q")
+out2=$(q add --session sessD2 --dir "$rdir" fact shared "q")
+checkeq "first session gets <slug>.md" "$out" "1${tab}$rdir/shared.md"
+checkeq "second session gets <slug>-2.md" "$out2" "1${tab}$rdir/shared-2.md"
+
+# --- concurrent adds and the lock -------------------------------------------
+
+P=sessP
+for i in 1 2 3 4 5 6; do
+  RESEARCH_QUEUE_LOCK_TRIES=30 q add --session "$P" --dir "$rdir" fact par "q$i" > /dev/null &
+done
+wait
+checkeq "6 concurrent adds leave 6 lines" "$(q list --session "$P" | tail -n +2 | wc -l | tr -d ' ')" "6"
+checkeq "6 concurrent adds have 6 distinct ids"   "$(q list --session "$P" | tail -n +2 | cut -f1 | sort -u | wc -l | tr -d ' ')" "6"
+checkeq "6 concurrent adds have 6 distinct report paths"   "$(q list --session "$P" | tail -n +2 | cut -f4 | sort -u | wc -l | tr -d ' ')" "6"
+
+lockdir="$proj/.kentra-rpir/research-queue/.lock"
+check "no lock left after normal calls" test ! -e "$lockdir"
+mkdir "$lockdir"
+err=$(RESEARCH_QUEUE_LOCK_TRIES=1 q "done" --session "$A" 1 2>&1 > /dev/null)
+checkeq "done on a held lock exits 1" "$(RESEARCH_QUEUE_LOCK_TRIES=1 q "done" --session "$A" 1 > /dev/null 2>&1; echo $?)" "1"
+case "$err" in *"$lockdir"*) echo "ok   - lock error names the lock dir" ;; *) echo "FAIL - lock error names the lock dir (got [$err])"; fails=$((fails + 1)) ;; esac
+check "a failed call leaves the foreign lock in place" test -d "$lockdir"
+rmdir "$lockdir"
+q "done" --session "$A" 1
+checkeq "done works once the lock is removed" "$?" "0"
+check "no lock left after done" test ! -e "$lockdir"
+
 # --- tab in a question ------------------------------------------------------
 
 D=sessD

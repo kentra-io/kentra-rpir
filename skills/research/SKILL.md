@@ -30,9 +30,10 @@ hand the pool to a subagent. The conversation goes on while jobs run.
    and spikes to `<change folder>/research/spikes/`. Outside one, reports go
    to `research.dir` and spikes to `<research.dir>/spikes/`. Create both with
    `mkdir -p`, and the index file's directory too.
-4. **Gitignore.** Make sure `.gitignore` holds the spikes folder
-   (`<changesDir>/*/research/spikes/`, or `<research.dir>/spikes/`). Spike
-   files never reach git; reports and the index can.
+4. **Gitignore.** Make sure `.gitignore` holds `.kentra-rpir/` (the queue
+   lives there) and the spikes folder (`<changesDir>/*/research/spikes/`, or
+   `<research.dir>/spikes/`), adding whichever is missing. Spike files never
+   reach git; reports and the index can.
 
 ## 2. Intake: check the index, size, queue
 
@@ -115,8 +116,9 @@ When a job's completion notification arrives:
    its report's Conclusion section. Read that; leave the report file closed
    unless the Conclusion leaves you unable to act.
 3. **A fact job.** Its lookup returns sources with excerpts. Write its report
-   at the job's path in the shape from `agents/researcher.md`, then append its
-   index row the way that file says.
+   at the job's path in the shape under "Report" in `agents/researcher.md`.
+   Then append its index row with the quoted heredoc under "Index row" in the
+   same file: one line of JSON, with `"` and `\` escaped in every value.
 4. **Act on it.**
    - A Conclusion with a Size line says the job was sized wrong: re-queue the
      question at its real size if it still matters.

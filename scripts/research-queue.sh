@@ -1,7 +1,8 @@
 #!/bin/sh
 # research-queue.sh — the job queue for research jobs, one queue per Claude
-# Code session. POSIX sh. The caller is serial, so there is no locking; the
-# file is rewritten atomically (temp file in the same directory, then mv).
+# Code session. POSIX sh. add, next and done hold one lock for the whole queue
+# directory (the directory <queue dir>/.lock, taken with mkdir); a queue file
+# is rewritten atomically (temp file in the same directory, then mv).
 #
 #   research-queue.sh add  --session <id> --dir <report dir> <kind> <slug> <question>
 #   research-queue.sh next --session <id> [--max <n>] [--stale <minutes>]
@@ -16,8 +17,8 @@
 # times are epoch seconds from `date +%s`, or RESEARCH_QUEUE_NOW when set.
 #
 # add prints "<id>\t<report path>". The report path is <dir>/<slug>.md, or
-# <slug>-2.md, <slug>-3.md, ... when the file exists or another job in this
-# session already has that path. The report file itself is never created.
+# <slug>-2.md, <slug>-3.md, ... when the file exists or any job in any
+# session's queue file already has that path. The report file itself is never created.
 #
 # next first marks every running job started more than <minutes> (default 60)
 # ago as stale and prints "stale\t<id>\t<kind>\t<report>\t<question>" for it;
@@ -26,6 +27,9 @@
 #
 # done marks a job done in any state; exit 1 for an unknown id or no queue.
 # list prints a header line and then the job lines in id order.
+#
+# A locked queue is retried once a second, RESEARCH_QUEUE_LOCK_TRIES times
+# (default 10), then the call exits 1.
 set -u
 
 usage() {
@@ -82,6 +86,17 @@ qfile="$qdir/$session.tsv"
 now="${RESEARCH_QUEUE_NOW:-$(date +%s)}"
 tab=$(printf '\t')
 
+lock() { # take the queue-dir lock; the EXIT trap releases it
+  mkdir -p "$qdir" || die 1 "cannot create $qdir"
+  tries="${RESEARCH_QUEUE_LOCK_TRIES:-10}"; tried=0
+  until mkdir "$qdir/.lock" 2> /dev/null; do
+    tried=$((tried + 1))
+    [ "$tried" -lt "$tries" ] || die 1 "queue locked; remove $qdir/.lock if no other call is running"
+    sleep 1
+  done
+  trap 'rmdir "$qdir/.lock" 2> /dev/null' EXIT
+}
+
 case "$cmd" in
   add)
     [ "$npos" -eq 3 ] || die 2 "expected <kind> <slug> <question>"
@@ -90,11 +105,12 @@ case "$cmd" in
     case "$kind" in fact|premise|survey) ;; *) die 2 "kind must be fact, premise or survey" ;; esac
     [ -n "$slug" ] && [ -n "$p3" ] || die 2 "slug and question must not be empty"
     question=$(printf '%s' "$p3" | tr '\t\n' '  ')
+    lock
     n=1; report="$dir/$slug.md"
     while :; do
       taken=1
       if [ ! -e "$report" ]; then
-        if [ ! -f "$qfile" ] || ! awk -F "$tab" -v r="$report" '$4 == r { f = 1 } END { exit !f }' "$qfile"; then
+        if ! cat "$qdir"/*.tsv 2> /dev/null | awk -F "$tab" -v r="$report" '$4 == r { f = 1 } END { exit !f }'; then
           taken=0
         fi
       fi
@@ -105,7 +121,6 @@ case "$cmd" in
     if [ -f "$qfile" ]; then
       id=$(awk -F "$tab" 'BEGIN { m = 0 } $1 + 0 > m { m = $1 + 0 } END { print m + 1 }' "$qfile")
     fi
-    mkdir -p "$qdir" || die 1 "cannot create $qdir"
     tmp=$(mktemp "$qdir/.$session.XXXXXX") || die 1 "cannot create a temp file in $qdir"
     if [ -f "$qfile" ]; then cat "$qfile" > "$tmp"; fi
     printf '%s\tqueued\t%s\t%s\t%s\t-\t-\t-\t%s\n' "$id" "$kind" "$report" "$now" "$question" >> "$tmp"
@@ -115,6 +130,7 @@ case "$cmd" in
   next)
     [ "$npos" -eq 0 ] || die 2 "unexpected argument $p1"
     [ -f "$qfile" ] || exit 0
+    lock
     tmp=$(mktemp "$qdir/.$session.XXXXXX") || die 1 "cannot create a temp file in $qdir"
     awk -F "$tab" -v OFS="$tab" -v now="$now" -v max="$max" -v stale="$stale" -v out="$tmp" '
       NF == 0 { next }
@@ -149,6 +165,7 @@ case "$cmd" in
   done)
     [ "$npos" -eq 1 ] || die 2 "expected <job id>"
     [ -f "$qfile" ] || die 1 "no queue for session $session"
+    lock
     if ! awk -F "$tab" -v id="$p1" '$1 "" == id "" { f = 1 } END { exit !f }' "$qfile"; then
       die 1 "unknown job id $p1"
     fi

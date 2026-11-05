@@ -164,12 +164,23 @@ research/models-review-split-context.md, research/external/index.md):
    command fails, or cannot run, somewhere is a correctness concern. Shipped
    in 0.5.4.
 
-### Area 4 — Research
+### Area 4 — Research (proposed, pending the user's approval)
 
-1. The kentra-rpir research workflow (checker → designer → judge) is
-   replaced by the spike driver (Area 2.3).
-2. The user-level research workflow (`~/.claude/workflows/research.js`)
-   gets the changes the user picks from the Design section.
+1. Research moves into kentra-rpir as one session-scoped research pool. It
+   replaces both the `kentra-rpir:research` workflow and the user-level
+   `~/.claude/workflows/research.js`. Spikes are one kind of research job.
+2. Every question is sized at intake:
+   - `fact`: one Haiku lookup;
+   - `premise`: a Sonnet spike driver with Haiku lookups and an Opus
+     advisor;
+   - `survey`: an Opus researcher with parallel Haiku lookups.
+3. The pool runs at most `research.maxParallel` jobs at once. Further
+   questions queue and start as jobs finish. Questions raised later in the
+   session join the queue.
+4. Every job writes one report, conclusions first, and adds a row to a
+   research index. The index is checked before a job starts.
+5. `research.standalone: false` turns the pool off outside rpir stages, for
+   users who keep their own research workflow.
 
 ### Cross-cutting
 
@@ -239,38 +250,82 @@ critical premises: both refutations so far were would-break.
   with now. The resumed verifier re-runs the full check and re-reads the
   whole diff, not only its earlier findings.
 
-### User-level research workflow (proposals for the user to pick from)
+### Research pool (proposed)
 
-1. The reasoner synthesises from the collectors' excerpts. It fetches a
-   source itself only when two excerpts conflict or one lacks a version.
-   The proto3 November reasoners re-fetched at 340–600k each.
-2. Size the run to the question. A single fact gets one Haiku lookup, not a
-   collector fleet; a single question gets one topic.
-3. Persist findings by default (outDir), with an index of claim,
-   subject@version, verdict and date. Before collecting, look up the index
-   and reuse a verified finding at the same version.
-4. Questions asked in a conversation join the open topic list for the next
-   run instead of each starting a workflow.
+**Why not a workflow.** A running workflow cannot take new questions, and
+its agents cannot dispatch subagents (P1). So the pool is run by the main
+session itself, dispatching background Agent-tool jobs, guided by a
+`kentra-rpir:research` skill and a small queue script.
+
+**Roles (agent definitions):**
+
+| Agent | Model | Does | Spawns |
+|---|---|---|---|
+| `lookup` | haiku | Finds one fact; returns sources with verbatim excerpts; no judgement | — |
+| `spike` | sonnet | Settles one premise: docs and source first, experiments if still open | `lookup`; `advisor` for critical premises |
+| `researcher` | opus | Answers one survey question; synthesises from lookup excerpts and fetches a source itself only on conflict or a missing version | `lookup`, in parallel |
+| `advisor` | opus | Second read of a spike's evidence and conclusion; re-runs only the decisive experiment | — |
+
+**Sizing at intake.** The main session sizes each question with a short
+rubric:
+- `fact`: one lookup, unless the answer is already in the index or the
+  main session can read it itself.
+- `premise`: a spike.
+- `survey`: a researcher.
+
+A job that finds its question bigger or smaller than its size says so in
+its report instead of growing.
+
+**The pool.**
+- **Queue.** `scripts/research-queue.sh add | next | done` keeps one queue
+  per Claude session, in the session's `.kentra-rpir/` state.
+- **Concurrency.** At most `research.maxParallel` jobs run at once (default
+  4). Each job runs at most `research.maxLookups` lookups at once (default
+  4). The defaults keep the pool within Claude Code's 20 concurrent
+  subagents.
+- **Starting jobs.** On each job-completion notification the main session
+  starts the next queued job.
+- **Follow-ups.** A follow-up on the same topic goes to the same researcher
+  when it is idle and within the cache window; otherwise to a fresh one.
+
+**Reports and index.**
+- **Report.** One report per job: `## Conclusion` first (answer, verdict,
+  confidence), then `## References`. The main session reads only the
+  Conclusion.
+- **Where reports go.** In an rpir change, reports go to
+  `<change>/research/<slug>.md`. Outside one, they go to
+  `research.dir`.
+- **Index.** `research.index`, a project-level JSONL of claim,
+  subject@version, verdict, confidence, date and report path. It is
+  checked before any job starts, so findings carry across changes. A
+  verified finding at the same version is reused, never re-researched.
+  - In the past three changes, about 2M tokens of research repeated
+    findings that already existed: one spike (P11) was simply re-run, the
+    srcDir layout was spiked again after an earlier change had already
+    settled it, and two pairs of runs worked on the same topic at the same
+    time.
+
+**Configuration (`.kentra-rpir.yaml`):**
+```yaml
+research:
+  standalone: true   # false: the research skill is off outside rpir stages
+  maxParallel: 4
+  maxLookups: 4
+  dir: docs/research
+  index: docs/research/index.jsonl
+```
+
+## Decided since the first draft
+
+- Spec and plan merge into one planning stage: one session, the user agrees
+  the spec while premises are spiked in the background, the session writes
+  the coarse plan, and the user approves it. One fresh review covers spec
+  and plan together before approval; diff reviews follow edits.
+- Opus milestone lead with a Sonnet implementer, implemented directly, with
+  no pilot against an advisor-on-demand setup.
+- Re-verification resumes the verifier within the cache window, and starts
+  a fresh one otherwise.
 
 ## Open questions
 
-1. **One planning stage.** Merge spec and plan into a single command (the
-   "planning stage")? Proposed shape:
-   - one session;
-   - checkpoint 1: the user agrees the spec, with premises spiked in the
-     background meanwhile;
-   - the session writes the coarse plan;
-   - checkpoint 2: the user approves the plan;
-   - one fresh review of spec and plan together before checkpoint 2, with
-     diff reviews after edits.
-2. **Lead or advisor: how to verify.** No source compares them head to head.
-   Proposed pilot:
-   - take three or four milestones of a finished change and write them as
-     coarse contracts;
-   - build each twice in worktrees: Opus lead with a Sonnet implementer, and
-     a Sonnet implementer with an Opus advisor on demand;
-   - compare verifier findings, rework rounds, the user's review and cost.
-3. **Re-verification.** The user wants fresh verifiers so assumptions do not
-   carry over, and cache reuse when possible. The Design section resumes the
-   verifier within the cache window and otherwise starts fresh. To confirm.
-4. **Research workflow.** Which of the four proposals to apply.
+1. The research pool proposal (Area 4 and Design "Research pool").

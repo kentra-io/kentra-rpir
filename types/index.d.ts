@@ -10,7 +10,7 @@ export type PlanMilestone = { number: number; slug: string; goal: string; depend
 /** The run's plan, as read from <changeFolder>/plan.yaml. */
 export type PlanGraph = { title: string; changeFolder: string; milestones: PlanMilestone[] }
 
-/** One implementer or verifier subagent. Times are ms since epoch. */
+/** One lead, implementer or verifier subagent. Times are ms since epoch. */
 export type AgentRun = {
   agentId: string
   toolUseId: string | null
@@ -21,6 +21,9 @@ export type AgentRun = {
   endedAt: number | null
   lastTool: string | null   // one-line summary, e.g. "Bash: ./gradlew test"
   outcome: Outcome | null
+  resumedAt?: number   // start of the current round, once the agent was resumed after another agent ran
+  pastMs?: number      // active time of the earlier rounds
+  rounds?: number      // rounds after the first
 }
 /** What the mod has seen of one milestone. agents: agentIds in dispatch order. */
 export type MilestoneRun = {
@@ -68,8 +71,8 @@ export type MilestoneView = {
   status: Status
   implMs: number
   verifyMs: number
-  attempts: number        // implementer dispatches
-  verifyRounds: number    // verifier dispatches
+  attempts: number        // implementing rounds: dispatches plus resumes
+  verifyRounds: number    // verifying rounds: dispatches plus resumes
   wallMs: number | null   // first dispatch → merge; null until merged
   currentTool: string | null
   runningAgentId: string | null

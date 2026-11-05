@@ -60,9 +60,10 @@ worktree's absolute path instead.
      milestone list and order. When the tool is missing, or `validate`
      rejects `schemaVersion: 0.4.0`, stop and tell the user:
      `kentra-rpir needs milestoned-plan-dag 0.4.0 or later: brew upgrade kentra-io/tap/milestoned-plan-dag`.
-   - **`small`:** there is no `plan.yaml`. Build one milestone from the
-     spec, as "Small tier" below says, and confirm its contract with the
-     user before dispatching.
+   - **`small`:** there is no `plan.yaml`. When the state file (step 4)
+     names this change, take milestone 1's `contract` from it. Otherwise
+     build one milestone from the spec, as "Small tier" below says, and
+     confirm its contract with the user before dispatching.
 4. **State file.** When `.kentra-rpir/implement-state.json` exists and names
    this change, this is a resumed run: go to "After a resume or compaction".
    When it names another change, ask the user before replacing it.
@@ -151,12 +152,15 @@ When a lead hands back, write its hand-back time to the state file, then:
 | `WAITING` | Not a hand-back to verify. Its implementer, named on the `WAITING:` line, still runs, and its report comes to you, not to the lead. Set the milestone's phase to `waiting`. When that report arrives, resume the same lead with it verbatim. |
 
 An implementer's report reaching you directly (its description starts with
-`M<n>`) belongs to milestone n's lead: keep it until that lead hands back
-WAITING, or pass it on at once when the lead already has.
+`M<n>`) belongs to milestone n's lead. When that lead's last hand-back was
+WAITING, pass the report on at once; otherwise send it with the lead's next
+resume.
 
 Resume a lead with SendMessage to its agent id: the answer, guidance,
-findings or implementer report, and nothing it already has. Count every
-resume in the milestone's `leadRounds`.
+findings or implementer report, and nothing it already has. A resume with
+an answer, guidance or findings starts a new round: count it in the
+milestone's `leadRounds`. Passing on an implementer's report continues the
+same round.
 
 ## 4. Verify
 
@@ -238,8 +242,9 @@ phase change and merge, before acting on the hand-back:
 ```
 
 Times are `date +%s` seconds; `handedBackAt` is `null` while the agent runs.
-`leadRounds` counts the lead's dispatch and every resume; `verifyRounds`
-every verification, of which `verifyResumes` resumed a verifier.
+`leadRounds` counts the lead's dispatch and every resume that starts a new
+round (step 3); `verifyRounds` every verification, of which
+`verifyResumes` resumed a verifier.
 
 ### After a resume or compaction
 
@@ -250,10 +255,11 @@ recorded `contract`. Then, per milestone that is not merged:
 - an agent recorded as running: wait for its notification. When none
   arrives because the session's process was resumed, resume the agent with
   SendMessage, telling it to continue where it stopped and hand back when
-  its work is done;
+  its work is done. Tell a lead also that implementers it started before
+  the resume are gone: it checks the branch for each piece's commit and
+  briefs a fresh implementer for any unfinished work;
 - a milestone in phase `waiting` whose implementer report never arrives:
-  resume its lead, telling it the implementer's report was lost and to
-  check the branch for the piece's commit before going on;
+  resume its lead with the same message about implementers that are gone;
 - an agent you need to reach (a lead for a fix round, a verifier within the
   cache window) that SendMessage cannot reach is replaced by a fresh one:
   - a fresh lead gets `guidance`: `An earlier lead worked on this milestone;

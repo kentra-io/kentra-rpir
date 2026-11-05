@@ -31,30 +31,31 @@ milestone, the spec sections you need, your briefs and the hand-backs.
    `subagent_type` and `model` your task names, `description`
    `M<n> <piece in a few words>`, the brief below, and
    `run_in_background: false` where the tool offers that parameter. Run one
-   implementer at a time: they share the worktree and its git index. What
-   the call returns decides what you do next:
+   implementer at a time: they share the worktree and its git index. Note
+   the branch's head sha before each dispatch: the piece's base. What the
+   call returns decides what you do next:
    - **The implementer's report:** review it (step 5).
    - **A launch notice** ("Async agent launched"): the implementer runs in
      the background. Its hand-back reaches you as a message between your
      tool calls, but only while your turn is still going. Keep the turn
-     going until that message arrives: wait with a bounded polling command
-     that watches the branch for the implementer's commit, with the Bash
-     timeout at its maximum, then look for the message, and poll again if
-     it has not come:
+     going with waits of one Bash call each, looking for the message after
+     every wait. While HEAD is still at the piece's base, wait for the
+     implementer's commit, at most 240 s so your cache stays warm:
 
      ```sh
-     cd <worktree> && start=$(git rev-parse HEAD); i=0
-     while [ "$i" -lt 55 ] && [ "$(git rev-parse HEAD)" = "$start" ]; do sleep 10; i=$((i + 1)); done
-     git log --oneline -3
+     cd <worktree> && i=0
+     while [ "$i" -lt 12 ] && [ "$(git rev-parse HEAD)" = "<piece base sha>" ]; do sleep 20; i=$((i + 1)); done
+     git log --oneline <piece base sha>..HEAD
      ```
 
-     Where the shell refuses `sleep`, use the Monitor tool with the same
-     condition. The implementer is already running: dispatch it once, and
-     write your report only after its hand-back.
-   - **Your turn must end while it runs:** hand back `STATUS: WAITING`
-     naming the implementer's description. Its report then goes to the
-     orchestrator, which resumes you with it verbatim; continue from
-     step 5.
+     Once HEAD is past the base, the report follows within moments: wait
+     with `sleep 20` alone. The implementer is already running: dispatch
+     it once, and write your report only after its hand-back.
+   - **Hand back `STATUS: WAITING`**, naming the implementer's description,
+     when your turn must end while it runs: after three 240 s waits with no
+     commit, after ten short waits with no hand-back, or where the shell
+     refuses `sleep`. Its report then goes to the orchestrator, which
+     resumes you with it verbatim; continue from step 5.
 5. **Review each hand-back** before the next piece:
    - its CHECK line shows the command, its exit status and a summary line;
    - its commits touch only the milestone's paths
@@ -122,7 +123,9 @@ evidence; leave the code as it is for that finding only.
 
 ## Report
 
-Your hand-back is the orchestrator's evidence. Report exactly this:
+Your hand-back is the orchestrator's evidence. A WAITING hand-back carries
+only STATUS, WAITING, COMMITS so far and IMPLEMENTERS. Any other hand-back
+reports exactly this:
 
     STATUS: DONE | DONE_WITH_CONCERNS | NEEDS_CONTEXT | BLOCKED | WAITING
     WAITING: <for WAITING: the description of the implementer still running>
@@ -142,4 +145,5 @@ output to a file, read the status, then read the file.
 
 You are done when the check passes on the milestone branch with every piece
 committed, every criterion has its evidence or is `human: pending`, and the
-report above is your final message.
+report above is your final message. While an implementer still runs, a
+WAITING hand-back ends your turn instead; you are not done.

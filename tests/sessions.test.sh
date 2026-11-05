@@ -54,14 +54,14 @@ change=docs/changes/2026-10-11-demo
 change2=docs/changes/2026-10-11-demo2
 map="$proj2/.kentra-rpir/sessions.map"
 
-# A session registered for several stages (spec then plan) lists once,
-# joined as "spec+plan", with a real transcript resolved.
+# A session registered for plan then implement lists once, joined as
+# "plan+implement", with a real transcript resolved.
 sidA=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 slug2=$(printf '%s' "$proj2" | sed 's/[^A-Za-z0-9]/-/g')
 mkdir -p "$CLAUDE_CONFIG_DIR/projects/$slug2"
 printf 'a\n' > "$CLAUDE_CONFIG_DIR/projects/$slug2/$sidA.jsonl"
-printf '%s %s spec\n' "$sidA" "$change" >> "$map"
 printf '%s %s plan\n' "$sidA" "$change" >> "$map"
+printf '%s %s implement\n' "$sidA" "$change" >> "$map"
 
 # Only the given change's sessions are listed.
 sidB=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
@@ -83,6 +83,11 @@ sidE=eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee
 printf '%s %s spec\n' "$sidE" "$change" >> "$map"
 printf '%s\n' "$sidE" >> "$map"
 
+# An older session registered spec then plan lists as "spec+plan".
+sidOld=99999999-9999-9999-9999-999999999999
+printf '%s %s spec\n' "$sidOld" "$change" >> "$map"
+printf '%s %s plan\n' "$sidOld" "$change" >> "$map"
+
 # A literal (non-regex) match on the key field: a decoy change value that
 # would wrongly match the real one if '.' were treated as a regex wildcard
 # (dot-as-any-char) instead of compared literally.
@@ -94,20 +99,22 @@ printf '%s %s spec\n' "$sidDecoy" "$decoychange" >> "$map"
 printf '%s %s plan\n' "$sidReal" "$changedot" >> "$map"
 
 listing=$(sh "$script" list --project "$proj2" --change "$change")
-checkeq "spec+plan joined for one session" \
-  "$(printf '%s\n' "$listing" | awk -v s="$sidA" '$1==s{print $2}')" "spec+plan"
-checkeq "spec+plan session's transcript resolved" \
+checkeq "a session registered plan then implement lists once as plan+implement" \
+  "$(printf '%s\n' "$listing" | awk -v s="$sidA" '$1==s{print $2}')" "plan+implement"
+checkeq "the plan+implement session's transcript is resolved" \
   "$(printf '%s\n' "$listing" | awk -v s="$sidA" '$1==s{print $3}')" "$CLAUDE_CONFIG_DIR/projects/$slug2/$sidA.jsonl"
 check "only the given change's sessions are listed (decoy change excluded)" \
   sh -c "! printf '%s\n' \"$listing\" | grep -q '^$sidB '"
-checkeq "CRLF + collapsed-space map line parsed" \
+checkeq "a review session on a CRLF line with collapsed spaces is parsed" \
   "$(printf '%s\n' "$listing" | awk -v s="$sidC" '$1==s{print $2}')" "review"
 check "empty change field (standalone line) listed nowhere" \
   sh -c "! printf '%s\n' \"$listing\" | grep -q '^$sidD '"
 check "a session with no transcript prints - as the path" \
   sh -c "printf '%s\n' \"$listing\" | awk -v s='$sidC' '\$1==s{print \$3}' | grep -qx -- -"
-checkeq "empty change field on the last line does not drop the earlier valid registration" \
+checkeq "an old spec-stage entry is still listed with stage spec, despite an empty change field on its last line" \
   "$(printf '%s\n' "$listing" | awk -v s="$sidE" '$1==s{print $2}')" "spec"
+checkeq "an old session registered spec then plan lists as spec+plan" \
+  "$(printf '%s\n' "$listing" | awk -v s="$sidOld" '$1==s{print $2}')" "spec+plan"
 
 listingdot=$(sh "$script" list --project "$proj2" --change "$changedot")
 check "literal match: real session (literal dot) is listed" \

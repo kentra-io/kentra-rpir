@@ -1,7 +1,8 @@
 #!/bin/sh
 # sessions.sh — the one place that parses .kentra-rpir/sessions.map and finds
-# Claude Code session transcripts for a kentra-rpir change (2.1.2, 2.1.3).
-# POSIX sh.
+# Claude Code session transcripts for a kentra-rpir change. POSIX sh.
+# Stages are plan, implement and review; an entry from an older version
+# (stage spec) is listed as-is.
 #
 #   sessions.sh list --project <root> --change <change folder>
 #   sessions.sh transcript --project <root> <session id>
@@ -10,7 +11,7 @@
 # first-appearance order:
 #   <session id> <stages> <transcript path or ->
 # A session registered under several stages lists them joined by "+" in map
-# order (e.g. "spec+plan"). Map parsing: CRLF tolerated, runs of whitespace
+# order (e.g. "plan+implement"). Map parsing: CRLF tolerated, runs of whitespace
 # between fields, a literal (non-regex) match on the key field, and a line
 # with no change field is ignored.
 #

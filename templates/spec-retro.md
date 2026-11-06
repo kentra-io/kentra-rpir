@@ -18,7 +18,7 @@
 | <sid> | plan stage | main session | — | <n> | <m.m> min wall |
 | <sid> | plan stage | <role: reviewer · full, reviewer · diff, lookup · fact job, spike, researcher, lookup · nested, advisor, workflow, other> | <n> | <n> | <m.m> min |
 
-Plan skill loaded at <ref>; work before it is not planning cost. Question rounds: <n> · Status resets: <n> · Reviews: full <n>, diff <n> · Research jobs: fact <n>, premise <n>, survey <n>
+Plan skill loaded at <ref>; work before it is not planning cost. A workflow row's Fresh tokens are followed by the Workflow tool's own count in parentheses. Question rounds: <n> · Status resets: <n> · Reviews: full <n>, diff <n> · Research jobs: fact <n>, premise <n>, survey <n>
 
 ## Research
 

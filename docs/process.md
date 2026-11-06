@@ -241,8 +241,10 @@ up.
    gets a docs check only. The session settles a premise itself only when it is
    about this repo's own code, or when it is normal and one or two reads of an
    official doc settle it. On each job's Conclusion it updates the premise's row:
-   status from the verdict, evidence as a link to the report. A refuted premise,
-   and a critical one left unverified, go to the user at once.
+   status from the verdict, evidence as a link to the report. A refuted premise
+   goes to the user, and so does a critical one left unverified, as a decision.
+   A normal premise left unverified goes to the user too, who may ask for a
+   spike.
 5. **Write `spec.md`** from `templates/spec.md` and show it section by section.
 6. **Agree the spec.** Only the user's explicit agreement sets `status: agreed`,
    with Open questions empty. A small-tier change goes on to the joint review.
@@ -665,8 +667,10 @@ with their last hand-back times; the lead rounds, verify rounds and verifier
 resumes; and at the small tier the contract the user confirmed.
 
 **After a session resume or compaction,** the orchestrator re-reads the file and
-the integration branch's merges. It waits for agents recorded as running. After a
-process resume it tells each lead to continue, and that implementers it started
+the integration branch's merges. It waits for agents recorded as running; after
+a compaction a `waiting` milestone keeps waiting for its implementer's report.
+After a process resume it resumes each running lead and verifier with SendMessage,
+telling a lead also that implementers it started
 before the resume are gone: the lead checks the branch for each piece's commit and
 briefs a fresh implementer for unfinished work. An agent SendMessage can no longer
 reach is replaced by a fresh one; a fresh lead is told the earlier lead's commits

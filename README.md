@@ -1,35 +1,39 @@
 # kentra-rpir
 
-A Claude Code plugin that runs one change — a feature, a bug or a chore — from
-idea to merged code, in four stages:
+A Claude Code plugin that runs one change (a feature, a bug or a chore) from
+idea to merged code, in three stages:
 
 | Stage | Skill | You | It writes |
 |---|---|---|---|
-| **spec** | `/kentra-rpir:spec` | answer questions until you agree | `spec.md` |
-| **plan** | `/kentra-rpir:plan` | approve | `plan.yaml` |
-| **implement** | `/kentra-rpir:implement` | settle what the orchestrator asks | code, `impl-report.md` |
+| **plan** | `/kentra-rpir:plan` | answer questions, agree the spec, approve the plan | `spec.md`, `plan.yaml`, research reports |
+| **implement** | `/kentra-rpir:implement` | settle what the orchestrator asks, check the `human:` criteria | code, `impl-report.md` |
 | **review** | `/kentra-rpir:review` | review the code and the retro | `spec-retro.md` |
+
+`/kentra-rpir:research` runs the research pool on its own, outside a change.
 
 It is RPI (Research → Plan → Implement) with an explicit Review stage, for a solo
 founder:
 
-- **Files are the handoff.** Each stage reads the previous stage's file, not
+- **Files are the handoff.** Each stage reads the previous stage's files, not
   its conversation.
-- **Checked against the source.** An independent reviewer checks the spec and
-  the plan against the conversation, the spec, the project's rules and its
-  constitution — split per milestone for a plan. Research agents check every
-  premise that could change the plan with a docs check, and spike only a
-  critical premise the docs don't settle.
-- **Two tiers.** `full` for code that ships; `light` for proofs of concept,
-  researching only what could change the plan's shape.
-- **Plans written in parallel.** The main session writes the plan's skeleton;
-  one writer per milestone fills in the detail.
-- **Parallel, verified implementation.** Milestones from the plan's DAG run in
-  parallel git worktrees. Each one is checked by a fresh verifier before it
-  merges.
-- **The process records itself.** The spec and plan sessions are kept as a
-  trimmed, redacted log in the change folder; the retro reads every session's
-  transcript, not the agents' account of their work.
+- **One session plans.** It asks the questions, settles the layout and the main
+  abstractions with you, writes the spec, and then writes a coarse plan: usually
+  3 to 8 milestones, each with its scope, interfaces, criteria and check, and no code.
+- **Research in the background.** Premises go to a session research pool while
+  the conversation goes on: a lookup for a fact, a spike for a premise, a
+  researcher for a survey. Each job writes a report, Conclusion first, and a row
+  in a project-wide index that is checked before anything is researched again.
+- **Two tiers.** `small`: the spec alone, built as one milestone. `standard`:
+  spec and plan, built milestone by milestone.
+- **One independent check per judgement.** One fresh reviewer reads spec and
+  plan together before you approve, and a diff review follows each edit of
+  substance. An advisor checks a spike's conclusion on a critical premise.
+- **Milestone leads.** Milestones from the plan's DAG run in parallel git
+  worktrees. An Opus lead per milestone turns it into briefs for fresh Sonnet
+  implementers, and a fresh verifier checks each milestone before it merges.
+- **The process records itself.** The planning sessions are kept as a trimmed,
+  redacted log in the change folder; the retro reads every session's transcript,
+  not the agents' account of their work.
 
 Everything for one change lives in `docs/changes/<date>-<slug>/`. See
 [`docs/process.md`](docs/process.md) for the whole process.
@@ -42,21 +46,45 @@ Everything for one change lives in `docs/changes/<date>-<slug>/`. See
 brew install kentra-io/tap/milestoned-plan-dag
 ```
 
-Needs `milestoned-plan-dag` 0.3.0 or later and `jq` 1.6 or later.
+Needs `milestoned-plan-dag` 0.4.0 or later (`brew upgrade
+kentra-io/tap/milestoned-plan-dag`) and `jq` 1.6 or later.
 
 Optional: [`adr-sourced-constitution`](https://github.com/kentra-io/adr-sourced-constitution)
-for a project constitution that the spec, plan and self-review stages read.
+for a project constitution that the plan stage and its reviewer read.
+
+**Changes started on 0.5.x.** A spec with `tier: full` or `tier: light` belongs
+to a change started on kentra-rpir 0.5.x. Finish it on 0.5.x: this version's
+stages stop on it and do not migrate it.
+
+## Usage
+
+1. `/kentra-rpir:plan` with the idea, bug or chore. Answer the questions, confirm
+   the tier, agree the spec, and approve the plan. The stage commits the change
+   folder.
+2. `/kentra-rpir:implement` builds it on an integration branch in
+   `.worktrees/<slug>/`, pushes it, and opens a pull request when the remote is GitHub and gh is
+   authenticated.
+3. `/kentra-rpir:review` presents the change for your code review while the retro
+   runs, then walks you through the retro's actions.
+
+Each stage ends with one line naming the next.
 
 ## Configure
 
-The first `/kentra-rpir:spec` in a project writes `.kentra-rpir.yaml`. Models and
-agents per role, question batch size, worktree location and research settings
-live there — see [`templates/kentra-rpir.yaml`](templates/kentra-rpir.yaml).
+The first `/kentra-rpir:plan` in a project asks three questions (where change
+folders live, the issue tracker, whether to read a constitution) and writes
+`.kentra-rpir.yaml`. Missing keys take the defaults in
+[`templates/kentra-rpir.yaml`](templates/kentra-rpir.yaml): the agent and model
+per role, the question batch size, the research pool's limits and folders, the
+standalone switch, the number of milestones in progress at once, the verifier's
+cache window, and the worktree location. [`docs/process.md`](docs/process.md#kentra-rpiryaml)
+explains every key.
 
 ## Watching an implement run
 
 While `/kentra-rpir:implement` runs, a side pane draws the plan as a
-graph:
+graph. A small-tier change, which has no plan file, shows as one
+milestone.
 
 - **One box per milestone**, in dependency order, with lanes in a
   gutter on the left that run from each milestone down to the
@@ -64,17 +92,20 @@ graph:
   draw every lane for says `+N edges` in its header, and every box
   lists its dependencies as `needs M<a>, M<b>`.
 - **Each box** shows `M<n> <slug>`, the goal, the status,
-  `impl <time> · verify <time>`, the attempts and verify rounds when
-  there is more than one, the wall-clock time once merged, and the
-  tool call the milestone's subagent is running right now. The
+  `impl <time> · verify <time>` (the lead's time and the verifiers'),
+  the attempts (lead rounds) and verify rounds when there is more
+  than one, the wall-clock time once merged, and the tool call the
+  milestone's lead or verifier is running right now. The
   status is one of waiting, ready, implementing, implemented,
   verifying, verified, failed, fixing, passed, merged or stuck.
-  `implementing`, `verifying` and `fixing` mean a subagent of the
-  milestone is running, and only then do the times count. Four
+  `implementing`, `verifying` and `fixing` mean the milestone's lead
+  or verifier is running, and only then do the times count. A lead
+  that handed back `WAITING` keeps its milestone `implementing`
+  until it is resumed with its implementer's report. Four
   statuses mean the milestone waits for the orchestrator, and the box
   says what for: `implemented · awaiting verify`,
   `verified · awaiting verdict`, `passed · awaiting merge` and
-  `failed · awaiting fix`. `stuck` means the implementer reported
+  `failed · awaiting fix`. `stuck` means the lead reported
   `BLOCKED` or `NEEDS_CONTEXT`, and a person needs to look.
 - **Colours.** Boxes with a running subagent, or that are implemented
   or verified, are light blue, passed and merged boxes are green,
@@ -104,7 +135,7 @@ reopen it and it shows the current state.
 **Trying it.** `sh tests/demo/run-demo.sh` from this checkout builds
 a throwaway git repository with a four-milestone diamond plan (M1,
 then M2 and M3 in parallel, then M4, each sleeping 30 seconds and
-writing one dummy file), Haiku implementers and
+writing one dummy file), Haiku leads, implementers and
 verifiers, and a bare `origin` beside it, in a new temporary
 directory (or in `<dir>` with `sh tests/demo/run-demo.sh <dir>`; the
 repository goes in `<dir>/project`). It then starts
@@ -118,8 +149,8 @@ and the command without starting Claude Code. The run spends model
 tokens.
 
 **Keys in the pane.** Up and Down select the previous or next box,
-Enter opens the transcript of the selected milestone's subagent (the
-running one, or else the most recent one), and `ctrl+x x` closes the
+Enter opens the transcript of the selected milestone's lead or
+verifier (the running one, or else the most recent one), and `ctrl+x x` closes the
 pane. PageUp, PageDown, Home, End and the mouse wheel scroll.
 
 **Optional hotkey.** A plugin cannot add a chord of its own, so the
@@ -155,9 +186,10 @@ then. The pane finds the plan through the `.kentra-rpir/sessions.map`
 that registers the session, also when the session started in a folder
 above the project (a folder of several repositories). It recognises a
 dispatch by the prompt's first line; when the prompt points to a file
-instead, by that file's name (`m<n>-<slug>.impl.<k>.md`,
-`m<n>-<slug>.verify.<k>.md`) or, for an implementer or verifier agent,
-by its description (`Implement M<n> <slug>`, `Verify M<n> <slug>`). A run in another terminal is not shown.
+instead, by that file's name (`m<n>-<slug>.lead.<k>.md`,
+`m<n>-<slug>.verify.<k>.md`) or, for a lead or verifier agent, by its
+description (`Lead M<n> <slug>`, `Verify M<n> <slug>`). A run in
+another terminal is not shown.
 
 ## History
 

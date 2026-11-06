@@ -1,15 +1,15 @@
 #!/bin/sh
 # planning-log.sh — writes <change folder>/planning-log.jsonl: the trimmed,
-# redacted record of the spec and plan sessions that defined a change (2.2).
+# redacted record of the planning sessions that defined a change.
 # POSIX sh + jq >= 1.6.
 #
 #   planning-log.sh --project <root> --change <change folder> --out <file>
 #
-# Takes the sessions from `sessions.sh list` whose stages include spec or
-# plan. For each, in list order, writes a `session` entry then the
-# session's kept lines in transcript order (2.2.3, 2.2.4). The output is
-# piped through redact.sh (2.2.5) before it lands at <file>: writes
-# <file>.tmp, renames it to <file> only on success, removes the .tmp on
+# Takes the sessions from `sessions.sh list` whose stages include plan, or
+# spec (a change started on an older version). For each, in list order,
+# writes a `session` entry then the session's kept lines in transcript
+# order. The output is piped through redact.sh before it lands at <file>:
+# writes <file>.tmp, renames it to <file> only on success, removes the .tmp on
 # failure.
 #
 # Exit: 0 written; 2 usage error, no planning session in the map, a jq
@@ -38,7 +38,7 @@ command -v jq >/dev/null 2>&1 || { echo "kentra-rpir: planning-log.sh: jq not fo
 
 sessions=$("$here/sessions.sh" list --project "$project" --change "$change") || sessions=""
 
-# Keep only sessions whose ("+"-joined) stages include spec or plan.
+# Keep only sessions whose ("+"-joined) stages include plan, or spec (an older change).
 planning=$(printf '%s\n' "$sessions" | awk '
   NF >= 1 {
     n = split($2, parts, "+")
@@ -49,14 +49,14 @@ planning=$(printf '%s\n' "$sessions" | awk '
 ')
 
 if [ -z "$planning" ]; then
-  echo "kentra-rpir: planning-log.sh: no spec or plan session registered for $change" >&2
+  echo "kentra-rpir: planning-log.sh: no planning session registered for $change" >&2
   exit 2
 fi
 
-# jq program implementing 2.2.3/2.2.4: reads the transcript leniently
+# jq program: reads the transcript leniently
 # (fromjson?; unparseable lines are skipped) and emits the kept lines.
 FILTER=$(cat <<'JQEOF'
-# 2.2.3 is explicit that reading is lenient: an unexpected-but-valid JSON
+# Reading is lenient: an unexpected-but-valid JSON
 # shape (a null where text is expected, a number where a path is expected,
 # a scalar where an object or array is expected, ...) must never raise a
 # jq runtime error and abort the whole run — it is dropped or coerced, the

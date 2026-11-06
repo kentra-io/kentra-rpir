@@ -2,8 +2,8 @@
 changesDir: docs/changes
 tracker: none
 constitution: false
-tier: light
 roles:
+  lead:        { agent: "kentra-rpir:lead",        model: haiku }
   implementer: { agent: "kentra-rpir:implementer", model: haiku }
   verifier:    { agent: "kentra-rpir:verifier",    model: haiku }
 implement:

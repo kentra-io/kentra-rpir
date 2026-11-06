@@ -1,5 +1,5 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/kentra-io/milestoned-plan-dag/v0.3.0/schema/plan.schema.json
-schemaVersion: 0.3.0
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kentra-io/milestoned-plan-dag/v0.4.0/schema/plan.schema.json
+schemaVersion: 0.4.0
 description: |
   A throwaway demo plan for the kentra-rpir milestone graph pane. Four
   milestones in a diamond: alpha first, beta and gamma in parallel on alpha,
@@ -13,12 +13,13 @@ milestones:
     description: |
       Waits 30 seconds, then creates `out/alpha.txt` with exactly one line,
       `alpha`. Touch no other file.
+
+      1. Run `sleep 30`, the demo's stand-in for real work, so the pane has
+         time to show the milestone running.
+      2. Run `mkdir -p out && printf 'alpha\n' > out/alpha.txt`.
+      3. Run `sh check.sh`; expected output: `ok`, exit 0.
     deliverables: |
       - `out/alpha.txt` — one line, `alpha`.
-    steps:
-      - "[ ] Run `sleep 30` (the demo's stand-in for real work, so the pane has time to show the milestone running)."
-      - "[ ] Run `mkdir -p out && printf 'alpha\\n' > out/alpha.txt`."
-      - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
     contract:
       check: sh check.sh
       criteria:
@@ -35,12 +36,13 @@ milestones:
     description: |
       Waits 30 seconds, then creates `out/beta.txt` with exactly one line,
       `beta`. Touch no other file.
+
+      1. Run `sleep 30`, the demo's stand-in for real work, so the pane has
+         time to show the milestone running.
+      2. Run `mkdir -p out && printf 'beta\n' > out/beta.txt`.
+      3. Run `sh check.sh`; expected output: `ok`, exit 0.
     deliverables: |
       - `out/beta.txt` — one line, `beta`.
-    steps:
-      - "[ ] Run `sleep 30` (the demo's stand-in for real work, so the pane has time to show the milestone running)."
-      - "[ ] Run `mkdir -p out && printf 'beta\\n' > out/beta.txt`."
-      - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
     contract:
       check: sh check.sh
       criteria:
@@ -57,12 +59,13 @@ milestones:
     description: |
       Waits 30 seconds, then creates `out/gamma.txt` with exactly one line,
       `gamma`. Touch no other file.
+
+      1. Run `sleep 30`, the demo's stand-in for real work, so the pane has
+         time to show the milestone running.
+      2. Run `mkdir -p out && printf 'gamma\n' > out/gamma.txt`.
+      3. Run `sh check.sh`; expected output: `ok`, exit 0.
     deliverables: |
       - `out/gamma.txt` — one line, `gamma`.
-    steps:
-      - "[ ] Run `sleep 30` (the demo's stand-in for real work, so the pane has time to show the milestone running)."
-      - "[ ] Run `mkdir -p out && printf 'gamma\\n' > out/gamma.txt`."
-      - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
     contract:
       check: sh check.sh
       criteria:
@@ -79,12 +82,13 @@ milestones:
     description: |
       Waits 30 seconds, then creates `out/delta.txt` with exactly one line,
       `delta`. Touch no other file.
+
+      1. Run `sleep 30`, the demo's stand-in for real work, so the pane has
+         time to show the milestone running.
+      2. Run `mkdir -p out && printf 'delta\n' > out/delta.txt`.
+      3. Run `sh check.sh`; expected output: `ok`, exit 0.
     deliverables: |
       - `out/delta.txt` — one line, `delta`.
-    steps:
-      - "[ ] Run `sleep 30` (the demo's stand-in for real work, so the pane has time to show the milestone running)."
-      - "[ ] Run `mkdir -p out && printf 'delta\\n' > out/delta.txt`."
-      - "[ ] Run `sh check.sh`; expected output: `ok`, exit 0."
     contract:
       check: sh check.sh
       criteria:

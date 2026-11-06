@@ -1,0 +1,372 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kentra-io/milestoned-plan-dag/v0.4.0/schema/plan.schema.json
+schemaVersion: 0.4.0
+description: |
+  Builds docs/changes/2026-11-05-process-redesign/spec.md: kentra-rpir moves
+  to a session research pool, a single planning stage with coarse plans,
+  Opus milestone leads with fresh Sonnet implementers, and lighter
+  verification. Read the spec first; every milestone implements part of it,
+  and its Design section holds the decisions, including the lifecycle rules.
+
+  **This plan is coarse on purpose.** It is the first plan written the new
+  way. Each milestone is a contract: why, scope, interfaces, criteria and a
+  check. No code and no steps. Read the repo and decide how.
+
+  **The plugin today:**
+  - **skills:** `spec`, `plan`, `implement`, `review`;
+  - **agents:** `implementer`, `verifier`, `plan-writer`, `reviewer`,
+    `retro`;
+  - **workflows:** `research`, `self-review`, `plan-milestones`,
+    `spec-retro`;
+  - **scripts and templates:** in `scripts/` and `templates/`;
+  - **the milestone-graph pane:** in `hooks/` and `types/`.
+
+  Who calls the research workflow today: the `spec` and `plan` skills, and
+  the `self-review` and `plan-milestones` workflows, through the
+  `research.workflow` config key. `tests/check-templates.sh` currently pins
+  only the first lines of the two implement prompt files.
+  `docs/process.md` describes the whole process.
+
+  **After this change:**
+  - **skills:** `plan` (spec and plan in one stage), `implement`, `review`,
+    `research`;
+  - **agents:** `lookup`, `spike`, `researcher`, `advisor`, `reviewer`,
+    `lead`, `implementer`, `verifier`, `retro`;
+  - **workflows:** `spec-retro` only.
+
+  **Shared conventions:**
+  - Skills and agent prompts follow the `writing-for-agents` skill.
+  - Config keys live in `templates/kentra-rpir.yaml`.
+  - Research reports start with `## Conclusion`.
+  - Tiers are `small` and `standard`.
+  - Stage names are `plan`, `implement` and `review`.
+  - Plans use milestoned-plan-dag schema 0.4.0, which has no `steps`.
+  - Nothing in the plugin mentions red-green, red runs or test-first
+    ordering. `tests/check-forbidden.sh` (M1) enforces that and grows with
+    every removed name.
+  - Every milestone keeps the check green.
+
+  **The check.** It requires `claude` on PATH, so the pane tests always run.
+  Until milestoned-plan-dag 0.4.0 is released, `MILESTONED_PLAN_DAG` points
+  at the local build of branch `schema-0.4.0-no-steps`.
+
+  **Versioning.** M1 sets `version` in `.claude-plugin/plugin.json` to
+  `0.6.0`; later milestones leave it.
+
+  **Outside this repository:**
+  - The milestoned-plan-dag change is done on its branch (spec P4).
+  - The user's `~/.claude/CLAUDE.md` "Research workflows" section is edited
+    by the orchestrator after M5 merges.
+rules:
+  - writing-for-agents
+milestones:
+  - number: 1
+    slug: research-pool
+    goal: "Research runs as a session pool of lookup, spike and researcher jobs, with reports and an index"
+    description: |
+      Spec Area 4, Design "Research pool" and "Lifecycle of the new
+      artifacts". The new `kentra-rpir:research` skill sits beside the old
+      `workflows/research.js` until M2 removes the workflow and rewires its
+      callers. The shared name only exists on this branch between the two
+      merges.
+
+      Interfaces later milestones use:
+      - **Skill `kentra-rpir:research`.**
+        - Intake sizes a question as fact, premise or survey.
+        - It checks the index before queueing, queues the job and
+          dispatches it in the background up to `research.maxParallel`.
+        - On each completion it starts the next queued job.
+        - It reads only a report's Conclusion.
+        - It sends a follow-up to the same researcher when it is idle and
+          within the cache window, and to a fresh one otherwise.
+        - It stops outside rpir stages when `research.standalone` is false.
+        - Normal premises get a docs check only; official docs or source
+          code settle a premise.
+      - **Agents:**
+        - `lookup` (haiku): every source with kind, publisher, date,
+          version and a verbatim excerpt;
+        - `spike` (sonnet): may dispatch lookups, and the advisor for a
+          critical premise;
+        - `researcher` (opus): synthesises from lookups, fetching a source
+          itself only on a conflict or a missing version;
+        - `advisor` (opus): reads the evidence, re-runs only the decisive
+          experiment.
+      - **Report.** `## Conclusion` (answer, verdict, confidence, and the
+        source kinds it rests on), then `## References`. Reports go in
+        `<change>/research/<slug>.md` inside an rpir change, and in
+        `research.dir` otherwise. A taken slug gets a numeric suffix.
+      - **Index.** JSONL at `research.index`. Each row holds claim,
+        subject@version, verdict, confidence, conclusion, date and report
+        path. A newer row for the same claim and subject supersedes the
+        older one. A verified row at the same version is reused, not
+        re-researched.
+      - **Queue.** `scripts/research-queue.sh add|next|done|list`, one queue
+        per Claude session id under `.kentra-rpir/`. Jobs have ids. A job
+        running longer than `research.staleMinutes` is reclaimed by `next`.
+      - **Config:** `research.standalone`, `maxParallel`, `maxLookups`,
+        `staleMinutes`, `dir`, `index`. `tests/check-templates.sh` learns
+        to check that listed config keys exist in the template.
+      - **Forbidden terms.** `tests/check-forbidden.sh` greps skills/,
+        agents/, templates/, workflows/ and scripts/ for red-green, "red
+        run" and test-first, and fails on a match. `tests/run.sh` runs it.
+    deliverables: |
+      skills/research/SKILL.md; agents/lookup.md, spike.md, researcher.md,
+      advisor.md; scripts/research-queue.sh, tests/research-queue.test.sh;
+      tests/check-forbidden.sh; research keys in templates/kentra-rpir.yaml;
+      tests/run.sh and tests/check-templates.sh; plugin version 0.6.0.
+    contract:
+      check: "command -v claude >/dev/null && sh tests/run.sh"
+      criteria:
+        - name: tests/research-queue.test.sh
+          given: "two Claude session ids and maxParallel 2"
+          when: "five jobs are added to one session and next/done are called, and one running job passes staleMinutes"
+          then: "at most 2 jobs run at once, in arrival order; the stale job's slot is reclaimed; the other session's queue is untouched"
+        - name: tests/check-templates.sh
+          then: "fails when one of the six research.* keys is missing from templates/kentra-rpir.yaml, passes when all are present"
+        - name: tests/check-forbidden.sh
+          then: "fails on a planted 'red run' line in a scratch copy of skills/, passes on the repo"
+        - name: "human: research skill"
+          then: "intake sizing, index check and reuse, queue and maxParallel, Conclusion-only reading, report location and slug suffix, follow-up routing, standalone switch, and the docs-only rule for normal premises are all stated"
+        - name: "human: source labels"
+          then: "agents/lookup.md requires kind, publisher, date and version per source; researcher, spike and advisor weigh claims by source kind, and a vendor benchmark or secondary summary does not settle a premise"
+      paths:
+        - skills/research/**
+        - agents/lookup.md
+        - agents/spike.md
+        - agents/researcher.md
+        - agents/advisor.md
+        - scripts/research-queue.sh
+        - tests/**
+        - templates/kentra-rpir.yaml
+        - .claude-plugin/plugin.json
+
+  - number: 2
+    slug: planning-stage
+    goal: "One planning stage writes spec and coarse plan, with background spikes and one joint review"
+    description: |
+      Spec Area 2 and Design "Verification and judgement" and "Coarse plans".
+      `skills/plan` absorbs `skills/spec`. One session:
+      1. The session asks the questions, including layout, abstractions and
+         what each version pin means.
+      2. It proposes the tier and the user confirms.
+      3. It queues critical premises with the research skill, and updates
+         the premise rows from report Conclusions.
+      4. It writes `spec.md`.
+      5. The user agrees the spec.
+      6. The session writes `plan.yaml` itself as 3–8 deliverable-sized
+         milestones. Each `description` holds scope, interfaces, decisions
+         and risks with their premises; there are no steps and no code.
+      7. One fresh `reviewer`, dispatched with the Agent tool from a prompt
+         file in `skills/plan/`, reviews spec and plan together.
+      8. Diff reviews follow edits.
+      9. The user approves the plan.
+
+      **Small tier.** The spec alone; no `plan.yaml`.
+
+      **The reviewer.** It labels each "no" as a decision or a technical gap
+      with its fix (no triage agent). It gains the two checks: keys,
+      identity and lifecycle; adversarial change.
+
+      **Removed:**
+      - `skills/spec`;
+      - `agents/plan-writer.md`;
+      - `workflows/self-review.js`, `workflows/plan-milestones.js` and
+        `workflows/research.js`;
+      - `scripts/assemble-plan.sh` and its test;
+      - the `research.workflow`, `checker`, `designer` and `reasoner` keys;
+      - the `tier` default.
+
+      `tests/check-forbidden.sh` adds the removed names, so later
+      milestones cannot reintroduce them. The terms are:
+      `kentra-rpir:spec\b`, `plan-milestones`, `self-review.js`,
+      `research.js`, `assemble-plan`, `plan-writer`, `research.workflow`,
+      `research.checker`.
+
+      Templates and the plan skill name schema 0.4.0.
+      `tests/fixtures/coarse-plan.yaml` (no steps) is validated by
+      `tests/run.sh` with `${MILESTONED_PLAN_DAG:-milestoned-plan-dag}`.
+    deliverables: |
+      skills/plan/SKILL.md and its reviewer prompt; agents/reviewer.md;
+      templates/spec.md (Layout, Abstractions, premises linking reports,
+      tier small|standard); templates/kentra-rpir.yaml; scripts/sessions.sh,
+      planning-log.sh, commit-change.sh stage handling; the removals;
+      tests and the coarse-plan fixture.
+    contract:
+      check: "command -v claude >/dev/null && sh tests/run.sh"
+      criteria:
+        - name: tests/sessions.test.sh
+          then: "stages are plan, implement and review; an old spec-stage entry in sessions.map is still listed"
+        - name: tests/check-workflows.mjs
+          then: "only workflows/spec-retro.js remains and passes"
+        - name: tests/check-forbidden.sh
+          then: "the removed names are forbidden and none appears"
+        - name: "tests/run.sh: coarse plan"
+          then: "tests/fixtures/coarse-plan.yaml validates with milestoned-plan-dag 0.4.0 and the run fails with 0.3.0"
+        - name: "human: planning stage"
+          then: "skills/plan/SKILL.md covers in order the nine points of this milestone's description, including the small tier, premise rows updated from reports, and normal premises by docs check only"
+        - name: "human: reviewer"
+          then: "agents/reviewer.md has the keys/identity/lifecycle and adversarial-change checks, a coverage check, and labels each no as decision or technical gap with a fix"
+      paths:
+        - skills/plan/**
+        - skills/spec/**
+        - agents/reviewer.md
+        - agents/plan-writer.md
+        - workflows/self-review.js
+        - workflows/plan-milestones.js
+        - workflows/research.js
+        - scripts/assemble-plan.sh
+        - scripts/sessions.sh
+        - scripts/planning-log.sh
+        - scripts/commit-change.sh
+        - templates/spec.md
+        - templates/kentra-rpir.yaml
+        - tests/**
+    depends-on:
+      - research-pool
+
+  - number: 3
+    slug: milestone-leads
+    goal: "Implement runs persistent Opus milestone leads with fresh Sonnet implementers and a contract verifier"
+    description: |
+      Spec Area 3, Design "Milestone lead and implementer" and "Lifecycle"
+      (orchestrator state).
+
+      **The orchestrator (main session):**
+      - dispatches one `lead` per ready milestone, up to
+        `implement.maxParallel`;
+      - dispatches a fresh `verifier` when a lead hands back;
+      - sends a FAIL to the same lead with SendMessage;
+      - resumes the verifier for re-verification when its last hand-back is
+        within `implement.cacheWindowMinutes`, and dispatches a fresh one
+        otherwise;
+      - tells a resumed verifier to re-run the full check and re-read the
+        whole diff;
+      - records agent ids and hand-back times in
+        `.kentra-rpir/implement-state.json`, and re-reads it after a resume
+        or compaction.
+
+      **The lead** runs Sonnet implementers in the foreground, a fresh one
+      for each piece of work, each from a brief naming the files it needs.
+      It keeps its own context to briefs and hand-backs, and hands back with
+      the implementers' evidence.
+
+      **The small tier** runs one milestone built from the spec.
+
+      **Agent changes:**
+      - `agents/implementer.md` no longer forbids exploring the codebase,
+        and drops "follow the steps".
+      - `agents/verifier.md` grades against the description and contract,
+        and adds the consumers check: run builds that read a changed file.
+      - The DONE_WITH_CONCERNS rule from 0.5.4 stays.
+
+      **The pane:**
+      - It recognises `Lead M<n>` dispatches as the milestone's running
+        agent.
+      - It reads a small-tier change, which has no plan.yaml, as one
+        milestone from the spec.
+      - It shows no error for it.
+    deliverables: |
+      agents/lead.md; agents/implementer.md; agents/verifier.md;
+      skills/implement/SKILL.md with lead and verifier prompt files;
+      templates/impl-report.md; implement keys in templates/kentra-rpir.yaml;
+      hooks/ and types/ changes with tests.
+    contract:
+      check: "command -v claude >/dev/null && sh tests/run.sh"
+      criteria:
+        - name: hooks/test/tracker.test.ts
+          given: "a Lead M2 dispatch followed by a Verify M2 dispatch"
+          when: "the tracker reduces them"
+          then: "M2 reads implementing while the lead runs and verifying while the verifier runs"
+        - name: hooks/test/plan.test.ts
+          given: "a change folder with spec.md, tier small, and no plan.yaml"
+          then: "the pane shows one milestone and no error"
+        - name: tests/check-templates.sh
+          then: "implement.maxParallel and implement.cacheWindowMinutes are checked"
+        - name: "human: implement skill"
+          then: "leads up to maxParallel, a fresh verifier per hand-back, FAIL to the same lead, verifier resumed only within the cache window and re-running the full check and diff, the state file and its use after resume, and the small tier are all stated"
+        - name: "human: lead"
+          then: "agents/lead.md runs foreground implementers from briefs, keeps its context to briefs and hand-backs, and hands back with evidence"
+      paths:
+        - agents/lead.md
+        - agents/implementer.md
+        - agents/verifier.md
+        - skills/implement/**
+        - templates/impl-report.md
+        - templates/kentra-rpir.yaml
+        - hooks/**
+        - types/**
+        - tests/**
+    depends-on:
+      - planning-stage
+    rules:
+      - plugin-authoring
+
+  - number: 4
+    slug: retro
+    goal: "The retro reads research reports, the index and the new roles"
+    description: |
+      Spec Cross-cutting 2. `workflows/spec-retro.js`, `agents/retro.md`
+      and `skills/review` learn:
+      - research reports and index rows as planning evidence;
+      - lead, implementer, verifier, spike, researcher, lookup and advisor
+        transcripts. Nested ones sit flat in the session's `subagents/`
+        folder (spec P1 probe).
+      - the merged `plan` stage name.
+
+      The planning-cost table counts from the moment the plan skill loads.
+      Earlier work in the session gets its own line (retro F22 measurement
+      fix).
+    deliverables: |
+      workflows/spec-retro.js; agents/retro.md; skills/review/SKILL.md;
+      templates/spec-retro.md; test fixtures.
+    contract:
+      check: "command -v claude >/dev/null && sh tests/run.sh"
+      criteria:
+        - name: tests/check-workflows.mjs
+          then: "spec-retro.js passes with a fixture holding a lead, a nested implementer and a spike job"
+        - name: "human: retro"
+          then: "the retro template has a line for pre-planning work separate from the planning stage, and reads research reports as evidence"
+      paths:
+        - workflows/spec-retro.js
+        - agents/retro.md
+        - skills/review/**
+        - templates/spec-retro.md
+        - tests/**
+    depends-on:
+      - milestone-leads
+
+  - number: 5
+    slug: docs-release
+    goal: "Process docs, README and backlog describe the new plugin"
+    description: |
+      `docs/process.md` and `README.md` describe the new stages, roles,
+      research pool, tiers, verifier rules and config.
+
+      `docs/retro-backlog.md` drops the entries this change ships:
+      - F13: maxParallel;
+      - F19: pins as a planning question.
+
+      The repo's own `.kentra-rpir.yaml` moves to the new keys, and the
+      `description` in `.claude-plugin/plugin.json` describes the new process.
+    deliverables: |
+      docs/process.md; README.md; docs/retro-backlog.md; .kentra-rpir.yaml; .claude-plugin/plugin.json description.
+    contract:
+      check: "command -v claude >/dev/null && sh tests/run.sh"
+      criteria:
+        - name: "grep: docs"
+          when: "grep -n for plan-milestones, self-review, research.js, plan-writer, /kentra-rpir:spec, red run and red-green in docs/process.md and README.md"
+          then: "no match"
+        - name: "human: process doc"
+          then: "docs/process.md describes the plan, implement and review stages, the research pool, small and standard tiers, leads, and the verifier rules as the spec states them"
+      paths:
+        - docs/process.md
+        - README.md
+        - docs/retro-backlog.md
+        - .kentra-rpir.yaml
+        - .claude-plugin/plugin.json
+    depends-on:
+      - retro
+
+# premises:
+#   PL1 | critical | refuted | probe 2026-11-05 (nest-probe2) | a lead can wait for a persistent implementer across its turns — spec P6; the user chose persistent lead + fresh foreground implementers
+#   PL2 | critical | verified | milestoned-plan-dag e451450, go test green, steps rejected | milestoned-plan-dag 0.4.0 has no steps — spec P4
+#   PL3 | normal | verified | probe 2026-11-05: nested transcripts sit flat in <session>/subagents/ | the retro and the pane find nested transcripts

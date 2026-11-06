@@ -44,7 +44,7 @@ const MAIN_INPUT: Record<string, string> = {
 /** `<tool>: <first non-empty line of its main input>`, or the tool name
  *  alone, cut to 80 characters. */
 export function toolSummary(tool: string, input: Record<string, unknown>): string {
-  const field = MAIN_INPUT[tool]
+  const field = tool === 'Agent' ? 'description' : MAIN_INPUT[tool]
   const value = field === undefined ? undefined : input[field]
   const first = typeof value === 'string'
     ? (value.split('\n').find(line => line.trim() !== '') ?? '').trim()

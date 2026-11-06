@@ -16,7 +16,9 @@ plan="$project/docs/changes/2026-10-16-demo-diamond/plan.yaml"
 
 out=$(sh "$here/tests/demo/run-demo.sh" "$tmp" --print-only 2>&1)
 check "run-demo.sh exits 0" test $? -eq 0
+# shellcheck disable=SC2016 # $1 and $2 expand in the inner sh, not here
 check "prints the project path" sh -c 'printf "%s\n" "$1" | grep -qF "Demo project: $2"' _ "$out" "$project"
+# shellcheck disable=SC2016 # $1 and $2 expand in the inner sh, not here
 check "prints the claude command" sh -c 'printf "%s\n" "$1" | grep -qF "claude --plugin-dir \"$2\" \"/kentra-rpir:implement docs/changes/2026-10-16-demo-diamond\""' _ "$out" "$here"
 
 mpd=${MILESTONED_PLAN_DAG:-milestoned-plan-dag}

@@ -12,7 +12,9 @@
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
+# shellcheck disable=SC2016 # the backticks are prompt text, not command substitution
 lead_line='You are leading milestone M{{number}} `{{slug}}` of the change "{{title}}".'
+# shellcheck disable=SC2016 # the backticks are prompt text, not command substitution
 verify_line='You are verifying milestone M{{number}} `{{slug}}` of the change "{{title}}".'
 test_file=hooks/test/tracker.test.ts
 config_file=templates/kentra-rpir.yaml

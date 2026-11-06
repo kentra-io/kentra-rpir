@@ -29,7 +29,7 @@ check_root() { # check_root <root>
   rc=0
   [ -n "$dirs" ] || return 0
   while IFS= read -r term; do
-    # $dirs is deliberately unquoted: it holds several paths
+    # shellcheck disable=SC2086 # $dirs is deliberately unquoted: it holds several paths
     hits=$(grep -rniE -e "$term" $dirs 2>/dev/null)
     if [ -n "$hits" ]; then
       printf '%s\n' "$hits" | while IFS= read -r hit; do

@@ -13,10 +13,6 @@ Source: a past change's spec-retro.md
   rather than what it did (M4 claimed a check was skipped; M17's exit status was
   redirected away). Proposed: `agents/implementer.md` requires the exit status
   read from `$?` and the parts of a chained check that ran.
-- **F13 — Parallel Docker checks.** Four to seven milestones ran Docker checks
-  on one host at once; M7's verifier check took about 15 minutes, past the
-  600 s timeout, and agents spent turns polling. Proposed: an
-  `implement.maxParallel` config key, honoured in implement step 2.
 - **F17 — Stray code fences.** Bulk extraction of the prompt's code blocks left
   a `` ```java `` line in a source file (M15). The same slip appeared in every
   retro so far. Proposed: `scripts/check-fences.sh` run before each merge.
@@ -25,10 +21,6 @@ Source: a past change's spec-retro.md
   recorded, so the retro accused the agent of reversing a tier decision the
   user had asked it to reverse. Proposed: record queued human prompts as
   `kind: user`.
-- **F19 — Pin policy at spec time.** The spec carried exact pins from spikes;
-  the policy question (newest compatible or known-good) then came up at three
-  stages. Proposed: the spec skill asks what a pin means when the change pins
-  versions.
 - **F20 — Lifecycle corner case eval.** The user, not research or review,
   found that deleting an artifact and recreating one at the same path passes CI.
   Proposed: an eval case for the spec skill rather than a rule.

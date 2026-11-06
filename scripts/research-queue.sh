@@ -103,7 +103,7 @@ case "$cmd" in
     [ -n "$dir" ] || die 2 "--dir is required"
     kind=$p1; slug=$p2
     case "$kind" in fact|premise|survey) ;; *) die 2 "kind must be fact, premise or survey" ;; esac
-    [ -n "$slug" ] && [ -n "$p3" ] || die 2 "slug and question must not be empty"
+    if [ -z "$slug" ] || [ -z "$p3" ]; then die 2 "slug and question must not be empty"; fi
     question=$(printf '%s' "$p3" | tr '\t\n' '  ')
     lock
     n=1; report="$dir/$slug.md"

@@ -90,7 +90,8 @@ until it prints no `start` line. Each line is tab-separated:
 
 Dispatch each started job with the Agent tool, `run_in_background: true`,
 `subagent_type` and `model` from the sizing table, `description`
-`research <id>: <slug>`, and this prompt:
+`research <id>: <report name>` (the report's file name without `.md`, so
+any suffix `add` gave it), and this prompt:
 
 ```
 Research job <id> (<kind>). Today is <YYYY-MM-DD>.

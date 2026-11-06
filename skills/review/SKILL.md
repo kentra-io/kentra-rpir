@@ -92,7 +92,9 @@ Fix what the user asks for on the integration branch:
   milestone whose code it changes. Then the lead's hand-backs, a fresh
   verifier and the merge: steps 2 to 5 of
   `${CLAUDE_PLUGIN_ROOT}/skills/implement/SKILL.md`. At the `small` tier,
-  build the milestone's fields as "Small tier" there says.
+  build the milestone's fields as "Small tier" there says. The implement
+  state file is gone by now: keep agent ids and hand-back times in your
+  log, and write no state file.
 
 Run the check after each fix: the plan's, or at the `small` tier the repo's
 standard check.

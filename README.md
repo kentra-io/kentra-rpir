@@ -17,8 +17,8 @@ founder:
 - **Files are the handoff.** Each stage reads the previous stage's files, not
   its conversation.
 - **One session plans.** It asks the questions, settles the layout and the main
-  abstractions with you, writes the spec, and then writes a coarse plan: 3 to 8
-  milestones, each with its scope, interfaces, criteria and check, and no code.
+  abstractions with you, writes the spec, and then writes a coarse plan: usually
+  3 to 8 milestones, each with its scope, interfaces, criteria and check, and no code.
 - **Research in the background.** Premises go to a session research pool while
   the conversation goes on: a lookup for a fact, a spike for a premise, a
   researcher for a survey. Each job writes a report, Conclusion first, and a row
@@ -62,7 +62,8 @@ stages stop on it and do not migrate it.
    the tier, agree the spec, and approve the plan. The stage commits the change
    folder.
 2. `/kentra-rpir:implement` builds it on an integration branch in
-   `.worktrees/<slug>/`, pushes it, and opens a pull request when the remote is GitHub.
+   `.worktrees/<slug>/`, pushes it, and opens a pull request when the remote is GitHub and gh is
+   authenticated.
 3. `/kentra-rpir:review` presents the change for your code review while the retro
    runs, then walks you through the retro's actions.
 

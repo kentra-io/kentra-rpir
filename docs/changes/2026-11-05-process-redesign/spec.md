@@ -1,8 +1,8 @@
 ---
 title: Leaner kentra-rpir — coarse plans, spike reports, milestone leads, lighter verification
 type: feature
-status: agreed
-tier: light
+status: in-review
+tier: standard
 issue:
 ---
 

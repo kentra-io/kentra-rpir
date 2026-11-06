@@ -50,12 +50,12 @@ const milestoneList = args.milestones.map(m => `M${m.number} ${m.slug} — paths
 // 1. Pre-pass
 const sessionDir = s => s.path.replace(/\.jsonl$/, '')
 
-const LAYOUT = dir => `Transcript layout: the session's subagent transcripts, nested ones included, sit flat in ${dir}/subagents/agent-<id>.jsonl. Beside each is agent-<id>.meta.json, e.g. {"agentType":"kentra-rpir:verifier","description":"Verify M4 readme","parentAgentId":"a6e4…","spawnDepth":2,"model":"opus"}; parentAgentId is present only for an agent another subagent dispatched. An agent resumed with SendMessage (a SendMessage tool_use whose input.to is its id) continues in the same transcript file. An agent's first user message is its dispatch prompt.
+const LAYOUT = dir => `Transcript layout: the session's subagent transcripts, nested ones included, sit flat in ${dir}/subagents/agent-<id>.jsonl. Beside each is agent-<id>.meta.json, e.g. {"agentType":"kentra-rpir:implementer","description":"M2 parser","parentAgentId":"a6e4…","spawnDepth":2,"model":"sonnet"}; parentAgentId is present only for an agent another subagent dispatched. A Workflow-tool run has a journal ${dir}/workflows/<runId>.json (runId like wf_ec8760ba-7e7) with keys including workflowName, startTime (epoch milliseconds), durationMs, totalTokens (the harness's own count), agentCount and status; the run's agents sit in ${dir}/subagents/workflows/<runId>/agent-<id>.jsonl with a .meta.json each, and are part of that run, not listed one by one. An agent resumed with SendMessage (a SendMessage tool_use whose input.to is its id) continues in the same transcript file. An agent's first user message is its dispatch prompt.
 Roles:
 - lead: description \`Lead M<n> <slug>\`, prompt line 1 "You are leading milestone M<n> \`<slug>\`"; its hand-backs carry STATUS: DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, BLOCKED or WAITING.
-- verifier: description \`Verify M<n> <slug>\` or \`Re-verify M<n> …\`, prompt line 1 "You are verifying milestone M<n> \`<slug>\`"; its hand-backs carry VERDICT: PASS or FAIL.
+- verifier: description \`Verify M<n> <slug>\`; a re-verification may instead be a SendMessage resume of the same verifier, whose message starts \`Re-verify M<n>\`; prompt line 1 "You are verifying milestone M<n> \`<slug>\`"; its hand-backs carry VERDICT: PASS or FAIL.
 - implementer: dispatched by a lead (its parentAgentId is the lead's id), description \`M<n> <piece>\`.
-- research job: description \`research <job id>: <slug>\`, agentType ending lookup (fact job), spike (premise) or researcher (survey); its prompt has a "Report: write it to <path>" line. A lookup or advisor nested in a job has parentAgentId = the job's agent.
+- research job: description \`research <job id>: <slug>\`, agentType ending lookup (fact job), spike (premise) or researcher (survey); a fact job's prompt has no "Report:" line and its report is <research dir>/<slug>.md, written by the main session, while spike and researcher prompts carry a "Report: write it to <path>" line. A lookup or advisor nested in a job has parentAgentId = the job's agent.
 - reviewer: agentType ending reviewer, description \`Review <name>\`; prompt line 1 contains "a full review" or "a diff review".
 - anything else: other.`
 
@@ -102,12 +102,13 @@ const PLANNING_SCHEMA = {
       planStage: { type: 'object', properties: { freshTokens: { type: 'number' }, wallMs: { type: 'number' } } },
     } },
     agents: { type: 'array', items: { type: 'object', properties: {
-      role: { type: 'string', enum: ['reviewer', 'lookup', 'spike', 'researcher', 'advisor', 'other'] },
+      role: { type: 'string', enum: ['reviewer', 'lookup', 'spike', 'researcher', 'advisor', 'workflow', 'other'] },
+      runId: { type: 'string' },
       mode: { type: 'string', enum: ['full', 'diff'] },
       job: { type: 'string' }, parentId: { type: 'string' },
       part: { type: 'string', enum: ['before plan', 'plan stage'] },
       description: { type: 'string' }, model: { type: 'string' }, transcript: { type: 'string' }, report: { type: 'string' },
-      freshTokens: { type: 'number' }, agentMs: { type: 'number' },
+      freshTokens: { type: 'number' }, harnessTokens: { type: 'number' }, agentMs: { type: 'number' },
     }, required: ['role', 'part'] } },
     questionRounds: { type: 'number' },
     statusResets: { type: 'array', items: { type: 'object', properties: {
@@ -151,11 +152,12 @@ The plan stage starts where the plan skill first loads: a Skill tool_use whose i
 
 Report:
 - main: the main transcript's own freshTokens and wallMs on each side of planStartRef (beforePlan, planStage)
-- agents: every subagent dispatched in planning, with role, mode (reviewer: full or diff), job (a research job's id), parentId, part, description, model, transcript path, report (a research job's path from its prompt's "Report:" line), freshTokens and agentMs. ${FRESH_TOKENS}
+- agents: every subagent dispatched in planning, with role, mode (reviewer: full or diff), job (a research job's id), parentId, part, description, model, transcript path, report (a spike's or researcher's path from its prompt's "Report:" line; for a fact job <research dir>/<slug>.md from the slug in its description${args.research?.dir ? `, the research dir being ${args.research.dir}` : ''}), freshTokens and agentMs. ${FRESH_TOKENS}
+- Workflow-tool runs: report each run started during planning as one agent entry with role "workflow", runId, description = its workflowName, part from comparing the journal's startTime (epoch ms) with the timestamp of the plan skill's load line ("before plan" or "plan stage"; transcript timestamps are ISO strings, so convert them, e.g. jq fromdateiso8601, minding fractional seconds), freshTokens = the fresh-token sum over the agent transcripts in subagents/workflows/<runId>/, harnessTokens = the journal's totalTokens, agentMs = its durationMs. Runs that started after the implement or review skill loaded are left out like everything else. Do not list a run's own agents separately.
 - questionRounds: an assistant turn that calls AskUserQuestion, or whose last text ends in a question, followed by a user message — one round per such exchange
 - statusResets: every \`status:\` edit to spec.md or plan.yaml that moves backwards in draft → agreed → planned → implementing → in-review → done, each as { from, to, ref: "<file>:<line>" }
 
-Use jq and grep through Bash; read leniently and skip lines you cannot parse. You are done when every agent in subagents/ dispatched before the end of planning is listed.`,
+Use jq and grep through Bash; read leniently and skip lines you cannot parse. You are done when every agent in subagents/ and every journal in workflows/ that started before the end of planning is accounted for.`,
     as('prepass', { label: `prepass:planning:${s.id}`, phase: 'Prepass', schema: PLANNING_SCHEMA }))),
 ])
 const prepasses = prepassResults.slice(0, implSessions.length)
@@ -211,8 +213,9 @@ const implementation = {
 const troubled = s => !s || s.blocked || s.leadRounds > 1 || s.verifierFails > 0 || s.errors > 0 || s.writesOutsidePaths.length > 0 || s.testRuns === 0
 
 const PARTS = ['before plan', 'plan stage']
-const ROLE_LABELS = ['reviewer · full', 'reviewer · diff', 'lookup · fact job', 'lookup · nested', 'spike', 'researcher', 'advisor', 'other']
+const ROLE_LABELS = ['reviewer · full', 'reviewer · diff', 'lookup · fact job', 'lookup · nested', 'spike', 'researcher', 'advisor', 'workflow', 'other']
 const roleLabel = a => a.role === 'reviewer' ? (a.mode === 'diff' ? 'reviewer · diff' : 'reviewer · full')
+  : a.role === 'workflow' ? 'workflow'
   : a.role === 'lookup' ? (a.parentId ? 'lookup · nested' : 'lookup · fact job')
   : a.role
 const planning = planningPrepasses.map((p, i) => p && { p, s: planningSessions[i] }).filter(Boolean).map(({ p, s }) => {
@@ -227,6 +230,7 @@ const planning = planningPrepasses.map((p, i) => p && { p, s: planningSessions[i
       rows.push({
         part, role: label, count: group.length,
         freshTokens: group.reduce((t, a) => addCost(t, a.freshTokens), null),
+        harnessTokens: group.reduce((t, a) => addCost(t, a.harnessTokens), null),
         time: group.reduce((t, a) => addCost(t, a.agentMs), null),
       })
     }
@@ -290,7 +294,8 @@ ${args.research?.index ? `- the research index: ${args.research.index}` : ''}
 
 Look for:
 - work before the plan skill that belonged in the stage, or was wasted
-- research sized wrong; research re-run though the index held a settled row at the same version; a spike on a normal premise
+- Workflow-tool runs before the plan skill and what they cost
+- research sized wrong; research re-run though the index held a settled row at the same version; experiments or an advisor on a normal premise
 - a spec Premises row that disagrees with its report's Conclusion; a Conclusion resting only on a vendor benchmark or secondary summary; a refuted or unverified premise not taken to the user
 - a gap the joint review should have caught; a substantive edit with no diff review
 - status resets; questions the user had to ask
@@ -354,7 +359,7 @@ const SYNTH_SCHEMA = {
     }, required: ['id', 'class', 'summary', 'decisive_ref', 'made_sense', 'severity'] } },
     went_well: { type: 'array', items: { type: 'string' } },
     research: { type: 'array', items: { type: 'object', properties: {
-      report: { type: 'string' }, kind: { type: 'string' }, verdict: { type: 'string' }, restsOn: { type: 'string' },
+      report: { type: 'string' }, kind: { type: 'string' }, verdict: { type: 'string' }, confidence: { type: 'string' }, restsOn: { type: 'string' },
       heldUp: { type: 'string', enum: ['held', 'contradicted', 'not tested'] }, evidence: { type: 'string' },
     }, required: ['report', 'heldUp', 'evidence'] } },
   },
@@ -393,7 +398,7 @@ Planning cost (JSON): ${JSON.stringify(planning)}
 Implementation cost (JSON): ${implementationJson}
 Research reports the planning reader listed (JSON): ${JSON.stringify(planningResearch)}
 
-Also fill \`research\`: one entry per research report in that list — report, kind, verdict, what it rests on, whether it held up (held, contradicted or not tested) judged against the milestone readers' evidence, and the evidence.
+Also fill \`research\`: one entry per research report in that list — report, kind, verdict, confidence, what it rests on, whether it held up (held, contradicted or not tested) judged against the milestone readers' evidence, and the evidence.
 
 You are done when every reader finding is in exactly one merged finding.`,
     as('retro', { label: 'synthesis', phase: 'Synthesize', schema: SYNTH_SCHEMA })),
@@ -460,6 +465,7 @@ ${missing.length ? `Missing transcripts — list these in Open questions too: ${
 
 Readers (timelines): ${readsJson}
 Planning cost (JSON): ${JSON.stringify(planning)}
+harnessTokens is the Workflow tool's own count, shown beside fresh tokens for workflow rows, not added into them.
 Research (JSON): ${JSON.stringify(synthesis.research || [])}
 Implementation cost (JSON): ${implementationJson}
 Synthesis: ${JSON.stringify(synthesis)}

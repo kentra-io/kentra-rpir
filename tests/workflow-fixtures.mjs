@@ -44,6 +44,8 @@ const specRetroPlanningOverride = {
     id: 's1', stages: 'plan', planStartRef: '/p/s1.jsonl:40',
     main: { beforePlan: { freshTokens: 11111, wallMs: 60000 }, planStage: { freshTokens: 22222, wallMs: 120000 } },
     agents: [
+      { role: 'workflow', part: 'before plan', runId: 'wf_abc-123', description: 'research', freshTokens: 7000, harnessTokens: 7500, agentMs: 30000 },
+      { role: 'workflow', part: 'plan stage', runId: 'wf_def-456', description: 'review', freshTokens: 9000, harnessTokens: 9500, agentMs: 40000 },
       { role: 'other', part: 'before plan', description: 'Explore repo', model: 'haiku', transcript: '/p/s1/subagents/agent-b1.jsonl', freshTokens: 3000, agentMs: 20000 },
       { role: 'reviewer', mode: 'full', part: 'plan stage', description: 'Review plan', model: 'opus', transcript: '/p/s1/subagents/agent-r1.jsonl', freshTokens: 40000, agentMs: 90000 },
       { role: 'spike', job: 'p1', part: 'plan stage', description: 'research p1: parser', model: 'opus', transcript: '/p/s1/subagents/agent-sp.jsonl', report: '/p/c/research/x.md', freshTokens: 50000, agentMs: 100000 },
@@ -100,6 +102,8 @@ export const fixtures = {
       expect: {
         'prompt names leads, verifiers, parentAgentId and the subagents dir': (_, c) => { const p = prompt(c, 'prepass:s2'); return p.includes('Lead M') && p.includes('Verify M') && p.includes('parentAgentId') && p.includes('/p/s2/subagents/') },
         'prompt no longer says implementer dispatches': (_, c) => !prompt(c, 'prepass:s2').includes('implementer dispatches'),
+        'layout example is a nested implementer and names the SendMessage re-verify': (_, c) => { const p = prompt(c, 'prepass:s2'); return p.includes('"description":"M2 parser"') && /SendMessage[^\n]*Re-verify/.test(p) },
+        'synthesis prompt mentions confidence': (_, c) => prompt(c, 'synthesis').includes('confidence'),
         'pre-pass asks for the cost fields': (_, c) => { const p = prompt(c, 'prepass:s2'); return p.includes('verifyRounds') && p.includes('freshTokens') && p.includes('wallMs') },
       },
     },
@@ -109,7 +113,9 @@ export const fixtures = {
       expect: {
         'exactly one planning prepass, on the prepass model': (_, c) => c.agents.filter(a => a.label.startsWith('prepass:planning:')).length === 1 && c.agents.find(a => a.label === 'prepass:planning:s1').model === 'haiku',
         'prompt names the plan skill and the subagents dir': (_, c) => { const p = prompt(c, 'prepass:planning:s1'); return p.includes('kentra-rpir:plan') && p.includes('/p/s1/subagents/') },
-        'prompt has no workflow journals': (_, c) => !prompt(c, 'prepass:planning:s1').includes('workflows/'),
+        'prompt names the workflow journals and their agents': (_, c) => { const p = prompt(c, 'prepass:planning:s1'); return p.includes('/p/s1/workflows/') && p.includes('/p/s1/subagents/workflows/') },
+        'workflow rows in both parts with harness tokens': (r) => { const rows = r.planning[0].rows; const b = rows.find(x => x.part === 'before plan' && x.role === 'workflow'); const p = rows.find(x => x.part === 'plan stage' && x.role === 'workflow'); return b && b.count === 1 && b.freshTokens === 7000 && b.harnessTokens === 7500 && p && p.count === 1 },
+        'workflow agents are not research jobs or reviews': r => JSON.stringify(r.planning[0].researchJobs) === JSON.stringify({ fact: 0, premise: 1, survey: 0 }) && r.planning[0].reviews.full === 1 && r.planning[0].reviews.diff === 0,
       },
     },
     'planning reader runs in full': {
@@ -121,6 +127,7 @@ export const fixtures = {
         'prompt includes the planning log path': (_, c) => prompt(c, 'read:planning').includes('/p/c/planning-log.jsonl'),
         'prompt includes the research dir and index': (_, c) => { const p = prompt(c, 'read:planning'); return p.includes('/p/c/research') && p.includes('/p/docs/research/index.jsonl') },
         'prompt never mentions impl-report.md': (_, c) => !prompt(c, 'read:planning').includes('impl-report.md'),
+        'look-for list says experiments or an advisor': (_, c) => { const p = prompt(c, 'read:planning'); return p.includes('experiments or an advisor on a normal premise') && !p.includes('a spike on a normal premise') },
       },
     },
     'PLAN class offered': {

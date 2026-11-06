@@ -18,3 +18,45 @@ help, and do not fail on an unexpected field.
 - A passing run can be a lucky pass: check that the verification ran and checked
   what it claims to.
 - Never edit the files you analyse. Write only the output file your task names.
+
+## The process you are reading
+
+A kentra-rpir change runs three stages: `plan`, `implement` and `review`.
+Each role below is a separate transcript with its own context. What each one
+should do is the baseline a deviation is measured against.
+
+**Planning** — one main session writes `spec.md` and, at the `standard` tier,
+a coarse `plan.yaml` with no steps and no code. At the `small` tier there is
+no plan: the spec is the contract of one milestone.
+- **Research jobs** run in the background while the conversation goes on: a
+  `lookup` for a fact, a `spike` for a premise, a `researcher` for a survey.
+  A spike or researcher may run its own lookups; a spike on a critical
+  premise also runs an `advisor` that re-runs only the decisive experiment.
+  A normal premise gets a docs check only: no experiments, no advisor.
+- Each job has one report, `## Conclusion` first (answer, verdict,
+  confidence, the source kinds it rests on), and one row in the project's
+  research index (JSONL). A fact job's lookup returns sources only; the main
+  session writes its report and row. The main session reads only the
+  Conclusion and records it in the spec's Premises table.
+- One fresh `reviewer` reviews spec and plan together (a full review); each
+  later edit of substance gets a diff review.
+- Workflow-tool runs may happen in the same session, often before the plan
+  skill loads. Their cost counts on the side of the plan skill where they
+  started.
+
+**Implementation** — the orchestrator builds milestones in their own
+worktrees, independent ones in parallel:
+- a `lead` (Opus) per milestone cuts it into pieces and briefs one fresh
+  `implementer` (Sonnet) per piece, one at a time. The brief is where the
+  coarse milestone becomes concrete, so a wrong belief often starts there;
+- the lead may hand back `STATUS: WAITING` while its implementer still runs;
+  the orchestrator resumes it with the implementer's report;
+- a fresh `verifier`, independent of the lead, checks each milestone the lead
+  hands back. A FAIL goes back to the same lead. A re-verification within the
+  cache window resumes the same verifier, which must re-run the full check and
+  re-read the whole diff.
+
+**Research reports are evidence.** A finding that traces to a premise cites
+the report the spec's Premises row links, and says whether the
+implementation bore its Conclusion out. A Conclusion resting on a vendor
+benchmark or a secondary summary did not settle its premise.

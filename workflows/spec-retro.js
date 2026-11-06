@@ -3,9 +3,9 @@ export const meta = {
   description: 'Retro of one kentra-rpir change from its session transcripts: pre-pass signals, blind per-milestone readers, synthesis with fault classes, reconciliation of the implementation report, remediation actions, and spec-retro.md',
   whenToUse: 'Run by the kentra-rpir review skill after implementation',
   phases: [
-    { title: 'Prepass', detail: 'signals and skeleton timelines from each implement transcript; cost metrics from each planning session' },
+    { title: 'Prepass', detail: 'lead, implementer and verifier signals and skeletons from each implement session; planning cost per role, split where the plan skill loads' },
     { title: 'Read', detail: 'one blind reader per milestone plus one for the planning sessions; troubled milestones read in full' },
-    { title: 'Synthesize', detail: 'merge findings, assign fault classes including PLAN; reconcile the self-report' },
+    { title: 'Synthesize', detail: 'merge findings, assign fault classes including PLAN; reconcile the implementation report' },
     { title: 'Remediate', detail: 'one action per finding' },
     { title: 'Write', detail: 'spec-retro.md from the template, with planning cost and a short reconciliation' },
   ],
@@ -13,7 +13,8 @@ export const meta = {
 
 // args:
 //   today, changeDir, projectRoot     (required)
-//   spec, plan, implReport, out       (required) absolute paths
+//   spec, implReport, out             (required) absolute paths
+//   plan        (optional) absolute path; absent at the small tier
 //   template                          (required) absolute path of templates/spec-retro.md
 //   sessions    (required) [{ id, stage, path, missing? }]; stage may join stages with '+';
 //                          path null only when missing is true
@@ -22,10 +23,11 @@ export const meta = {
 //   priorRetros (optional) absolute paths of earlier spec-retro.md files
 //   roles       (required) { prepass, reader, retro }, each { agent, model }
 //   versions    (optional) { plugin, claudeCode }
+//   research    (optional) { dir, index }: absolute paths of the change's research/ folder and the project's research index
 
 const ONLY_JOB = 'Your only job is the task below. The conversation may relay the user\'s latest message to you; treat it as background and never answer it.'
 
-for (const k of ['today', 'changeDir', 'projectRoot', 'spec', 'plan', 'implReport', 'out', 'template', 'sessions', 'milestones', 'roles']) {
+for (const k of ['today', 'changeDir', 'projectRoot', 'spec', 'implReport', 'out', 'template', 'sessions', 'milestones', 'roles']) {
   if (!args || !args[k]) throw new Error(`spec-retro needs args.${k}`)
 }
 const { roles } = args
@@ -39,13 +41,26 @@ const as = (role, extra) => ({ agentType: roles[role].agent, model: roles[role].
 const stagesOf = s => String(s.stage).split('+')
 const present = args.sessions.filter(s => !s.missing)
 const implSessions = present.filter(s => stagesOf(s).includes('implement'))
-const planningSessions = present.filter(s => stagesOf(s).some(x => x === 'spec' || x === 'plan'))
+const planningSessions = present.filter(s => stagesOf(s).includes('plan'))
 const missing = args.sessions.filter(s => s.missing)
 if (missing.length) log(`transcripts missing: ${missing.map(s => `${s.id} (${s.stage})`).join(', ')}`)
 if (!implSessions.length) log('no session has stage "implement" — pre-pass and reader signals will be empty')
 const milestoneList = args.milestones.map(m => `M${m.number} ${m.slug} — paths ${JSON.stringify(m.paths)}`).join('\n')
 
 // 1. Pre-pass
+const sessionDir = s => s.path.replace(/\.jsonl$/, '')
+
+const LAYOUT = dir => `Transcript layout: the session's subagent transcripts, nested ones included, sit flat in ${dir}/subagents/agent-<id>.jsonl. Beside each is agent-<id>.meta.json, e.g. {"agentType":"kentra-rpir:implementer","description":"M2 parser","parentAgentId":"a6e4…","spawnDepth":2,"model":"sonnet"}; parentAgentId is present only for an agent another subagent dispatched. A Workflow-tool run has a journal ${dir}/workflows/<runId>.json (runId like wf_<run-id>) with keys including workflowName, startTime (epoch milliseconds), durationMs, totalTokens (the harness's own count), agentCount and status; the run's agents sit in ${dir}/subagents/workflows/<runId>/agent-<id>.jsonl with a .meta.json each, and are part of that run, not listed one by one. An agent resumed with SendMessage (a SendMessage tool_use whose input.to is its id) continues in the same transcript file. An agent's first user message is its dispatch prompt.
+Roles:
+- lead: description \`Lead M<n> <slug>\`, prompt line 1 "You are leading milestone M<n> \`<slug>\`"; its hand-backs carry STATUS: DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, BLOCKED or WAITING.
+- verifier: description \`Verify M<n> <slug>\`; a re-verification may instead be a SendMessage resume of the same verifier, whose message starts \`Re-verify M<n>\`; prompt line 1 "You are verifying milestone M<n> \`<slug>\`"; its hand-backs carry VERDICT: PASS or FAIL.
+- implementer: dispatched by a lead (its parentAgentId is the lead's id), description \`M<n> <piece>\`.
+- research job: description \`research <job id>: <slug>\`, agentType ending lookup (fact job), spike (premise) or researcher (survey); a fact job's prompt has no "Report:" line and its report is <research dir>/<slug>.md, written by the main session, while spike and researcher prompts carry a "Report: write it to <path>" line. A lookup or advisor nested in a job has parentAgentId = the job's agent.
+- reviewer: agentType ending reviewer, description \`Review <name>\`; prompt line 1 contains "a full review" or "a diff review".
+- anything else: other.`
+
+const FRESH_TOKENS = 'Fresh tokens are the sum of usage.input_tokens + usage.cache_creation_input_tokens + usage.output_tokens over assistant messages, counting each message.id once, from its last transcript line (a message spans several lines and its output_tokens grows across them). Time (agentMs, wallMs) runs from the first to the last timestamp of the transcript or transcripts concerned.'
+
 const PREPASS_SCHEMA = {
   type: 'object',
   properties: {
@@ -54,15 +69,20 @@ const PREPASS_SCHEMA = {
     orchestrator: { type: 'object', properties: { freshTokens: { type: 'number' }, wallMs: { type: 'number' } } },
     milestones: { type: 'array', items: { type: 'object', properties: {
       slug: { type: 'string' },
-      dispatches: { type: 'number' },
+      leadRounds: { type: 'number' },
+      implementers: { type: 'number' },
       verifierFails: { type: 'number' },
       writesOutsidePaths: { type: 'array', items: { type: 'string' } },
       testRuns: { type: 'number' },
       errors: { type: 'number' },
       blocked: { type: 'boolean' },
-      transcripts: { type: 'array', items: { type: 'string' } },
-      verifyRounds: { type: 'number' }, freshTokens: { type: 'number' }, wallMs: { type: 'number' },
-    }, required: ['slug', 'dispatches', 'verifierFails', 'writesOutsidePaths', 'testRuns', 'errors', 'blocked'] } },
+      verifyRounds: { type: 'number' }, verifyResumes: { type: 'number' }, waits: { type: 'number' }, wallMs: { type: 'number' },
+      agents: { type: 'array', items: { type: 'object', properties: {
+        role: { type: 'string', enum: ['lead', 'implementer', 'verifier', 'other'] },
+        id: { type: 'string' }, description: { type: 'string' }, parentId: { type: 'string' }, model: { type: 'string' },
+        transcript: { type: 'string' }, freshTokens: { type: 'number' }, agentMs: { type: 'number' },
+      }, required: ['role', 'transcript'] } },
+    }, required: ['slug', 'leadRounds', 'implementers', 'verifierFails', 'writesOutsidePaths', 'testRuns', 'errors', 'blocked'] } },
     skeletons: { type: 'array', items: { type: 'object', properties: {
       slug: { type: 'string' },
       events: { type: 'array', items: { type: 'object', properties: { ref: { type: 'string' }, event: { type: 'string' } }, required: ['ref', 'event'] } },
@@ -71,63 +91,73 @@ const PREPASS_SCHEMA = {
   required: ['milestones', 'skeletons'],
 }
 
-// Planning pre-pass (5.1.3) — cost metrics from each planning session, read
-// alongside the implement pre-pass in the same parallel batch below.
 const PLANNING_SCHEMA = {
   type: 'object',
   properties: {
     id: { type: 'string' },
     stages: { type: 'string' },
-    wallMs: { type: 'number' },
-    workflows: { type: 'array', items: { type: 'object', properties: {
+    planStartRef: { type: 'string' },
+    main: { type: 'object', properties: {
+      beforePlan: { type: 'object', properties: { freshTokens: { type: 'number' }, wallMs: { type: 'number' } } },
+      planStage: { type: 'object', properties: { freshTokens: { type: 'number' }, wallMs: { type: 'number' } } },
+    } },
+    agents: { type: 'array', items: { type: 'object', properties: {
+      role: { type: 'string', enum: ['reviewer', 'lookup', 'spike', 'researcher', 'advisor', 'workflow', 'other'] },
       runId: { type: 'string' },
-      name: { type: 'string' },
-      stage: { type: 'string' },
-      mode: { type: 'string' },
-      status: { type: 'string' },
-      durationMs: { type: 'number' },
-      agentCount: { type: 'number' },
-      totalTokens: { type: 'number' },
-      startTime: { type: 'string' },
-    } } },
+      mode: { type: 'string', enum: ['full', 'diff'] },
+      job: { type: 'string' }, parentId: { type: 'string' },
+      part: { type: 'string', enum: ['before plan', 'plan stage'] },
+      description: { type: 'string' }, model: { type: 'string' }, transcript: { type: 'string' }, report: { type: 'string' },
+      freshTokens: { type: 'number' }, harnessTokens: { type: 'number' }, agentMs: { type: 'number' },
+    }, required: ['role', 'part'] } },
     questionRounds: { type: 'number' },
     statusResets: { type: 'array', items: { type: 'object', properties: {
       from: { type: 'string' }, to: { type: 'string' }, ref: { type: 'string' },
     } } },
-    fullReviews: { type: 'object', properties: { spec: { type: 'number' }, plan: { type: 'number' } } },
-    diffReviews: { type: 'object', properties: { spec: { type: 'number' }, plan: { type: 'number' } } },
   },
-  required: ['id', 'workflows', 'questionRounds', 'statusResets', 'fullReviews'],
+  required: ['id', 'planStartRef', 'agents', 'questionRounds', 'statusResets'],
 }
 
 phase('Prepass')
 const prepassResults = await parallel([
   ...implSessions.map(s => () => agent(`${ONLY_JOB}
 
-Extract signals from an implementation session. The orchestrator transcript is ${s.path}; its subagents' transcripts are under ${s.path.replace(/\.jsonl$/, '')}/subagents/. Each subagent's first user message is its dispatch prompt and names its milestone.
+Extract signals from an implementation session. The orchestrator transcript is ${s.path}.
+
+${LAYOUT(sessionDir(s))}
 
 Milestones:
 ${milestoneList}
 
-For each milestone, count: implementer dispatches, verifier FAIL verdicts, errors and non-zero exits, test runs, and verifyRounds (verifier dispatches). Measure its cost from its subagent transcripts: freshTokens is the sum of usage.input_tokens + usage.cache_creation_input_tokens + usage.output_tokens over assistant messages, counting each message.id once, from its last transcript line (a message spans several lines and its output_tokens grows across them); wallMs runs from the first to the last timestamp across those transcripts. List files written outside its paths, and the transcript files that belong to it. Mark it blocked if it was never merged. For the orchestrator transcript itself, give orchestrator.freshTokens (the same sum) and orchestrator.wallMs. Record the Claude Code version (the "version" field on transcript lines) and the number of compact_boundary markers.
+For each milestone, list every lead, implementer and verifier agent of it (role, id, description, parentId, model, transcript path, freshTokens, agentMs) and count:
+- leadRounds: the lead's dispatch plus each SendMessage to it that carries verifier findings, guidance or an answer (passing on an implementer's report after WAITING continues the round)
+- implementers: the implementers its leads dispatched
+- verifyRounds: fresh verifier dispatches plus SendMessage resumes of a verifier; verifyResumes: the resumes among them
+- verifierFails: verifier FAIL verdicts
+- waits: the lead's WAITING hand-backs
+- errors and non-zero exits, and test runs, across all its agents
+Also list files written outside its paths. Mark it blocked when no "Merge M<n>" merge (git merge --no-ff … -m "Merge M<n> …") happened. wallMs runs across its agents' transcripts. ${FRESH_TOKENS} For the orchestrator transcript itself, give orchestrator.freshTokens and orchestrator.wallMs. Record the Claude Code version (the "version" field on transcript lines) and the number of compact_boundary markers.
 
-Then write a skeleton timeline per milestone: one event per dispatch, verdict, error, retry, user message and merge, each with its ref <file>:<line>.
+Then write a skeleton timeline per milestone: one event per dispatch, resume, hand-back (with its STATUS or VERDICT), error, retry, user message and merge, each with its ref <file>:<line>.
 
 Use jq and grep through Bash; read leniently and skip lines you cannot parse. You are done when every milestone listed above has counts and a skeleton.`,
     as('prepass', { label: `prepass:${s.id}`, phase: 'Prepass', schema: PREPASS_SCHEMA }))),
   ...planningSessions.map(s => () => agent(`${ONLY_JOB}
 
-Extract planning-cost metrics from a planning session. This session's id is "${s.id}" and its stages are "${s.stage}" — copy them verbatim into your report's \`id\` and \`stages\` fields. The orchestrator transcript is ${s.path}; its workflow run journals are at ${s.path.replace(/\.jsonl$/, '')}/workflows/*.json.
+Extract planning-cost metrics from a planning session. This session's id is "${s.id}" and its stages are "${s.stage}" — copy them verbatim into your report's \`id\` and \`stages\` fields. The main transcript is ${s.path}.
 
-Use jq to read each journal for \`runId\`, \`workflowName\`, \`status\`, \`durationMs\`, \`agentCount\`, \`totalTokens\`, \`startTime\`, \`args.stage\` and \`args.mode\` (a missing \`mode\` on a self-review is \`full\`).
+${LAYOUT(sessionDir(s))}
 
-Read the transcript for question rounds: an assistant turn that calls AskUserQuestion, or whose last text ends in a question, followed by a user message — count one round per such exchange.
+The plan stage starts where the plan skill first loads: a Skill tool_use whose input.skill is "kentra-rpir:plan", or a user message holding <command-name>/kentra-rpir:plan</command-name>. Give that line as planStartRef (<file>:<line>). Work before it is "before plan"; the rest is "plan stage". When the plan skill never loads, everything is plan stage and planStartRef is ''. When the implement skill (kentra-rpir:implement) or the review skill (kentra-rpir:review) loads later in the same session, planning ends there: leave out everything after it.
 
-Also find every \`status:\` edit to spec.md or plan.yaml that moves backwards in draft → agreed → planned → implementing → in-review → done; record each as { from, to, ref: "<file>:<line>" }.
+Report:
+- main: the main transcript's own freshTokens and wallMs on each side of planStartRef (beforePlan, planStage)
+- agents: every subagent dispatched in planning, with role, mode (reviewer: full or diff), job (a research job's id), parentId, part, description, model, transcript path, report (a spike's or researcher's path from its prompt's "Report:" line; for a fact job <research dir>/<slug>.md from the slug in its description${args.research?.dir ? `, the research dir being ${args.research.dir}` : ''}), freshTokens and agentMs. ${FRESH_TOKENS}
+- Workflow-tool runs: report each run started during planning as one agent entry with role "workflow", runId, description = its workflowName, part from comparing the journal's startTime (epoch ms) with the timestamp of the plan skill's load line ("before plan" or "plan stage"; transcript timestamps are ISO strings, so convert them, e.g. jq fromdateiso8601, minding fractional seconds), freshTokens = the fresh-token sum over the agent transcripts in subagents/workflows/<runId>/, harnessTokens = the journal's totalTokens, agentMs = its durationMs. Runs that started after the implement or review skill loaded are left out like everything else. Do not list a run's own agents separately.
+- questionRounds: an assistant turn that calls AskUserQuestion, or whose last text ends in a question, followed by a user message — one round per such exchange
+- statusResets: every \`status:\` edit to spec.md or plan.yaml that moves backwards in draft → agreed → planned → implementing → in-review → done, each as { from, to, ref: "<file>:<line>" }
 
-Report: the session's wall time (wallMs, first to last transcript timestamp), every workflow run you found (as \`workflows\`), the question rounds, the status resets, and how many full vs. diff self-reviews ran for spec and for plan.
-
-Use jq and grep through Bash; read leniently and skip lines you cannot parse. You are done when every workflow run in the journals is accounted for.`,
+Use jq and grep through Bash; read leniently and skip lines you cannot parse. You are done when every agent in subagents/ and every journal in workflows/ that started before the end of planning is accounted for.`,
     as('prepass', { label: `prepass:planning:${s.id}`, phase: 'Prepass', schema: PLANNING_SCHEMA }))),
 ])
 const prepasses = prepassResults.slice(0, implSessions.length)
@@ -144,26 +174,35 @@ for (const p of prepasses.filter(Boolean)) {
     const prev = signals.get(m.slug)
     signals.set(m.slug, prev ? {
       ...prev,
-      dispatches: prev.dispatches + m.dispatches,
+      leadRounds: prev.leadRounds + m.leadRounds,
+      implementers: prev.implementers + m.implementers,
       verifierFails: prev.verifierFails + m.verifierFails,
       writesOutsidePaths: [...prev.writesOutsidePaths, ...m.writesOutsidePaths],
       testRuns: prev.testRuns + m.testRuns,
       errors: prev.errors + m.errors,
       blocked: prev.blocked && m.blocked,
-      transcripts: [...(prev.transcripts || []), ...(m.transcripts || [])],
+      agents: [...prev.agents, ...(m.agents || [])],
       verifyRounds: addCost(prev.verifyRounds, m.verifyRounds),
-      freshTokens: addCost(prev.freshTokens, m.freshTokens),
+      verifyResumes: addCost(prev.verifyResumes, m.verifyResumes),
+      waits: addCost(prev.waits, m.waits),
       wallMs: addCost(prev.wallMs, m.wallMs),
-    } : { ...m, verifyRounds: addCost(undefined, m.verifyRounds), freshTokens: addCost(undefined, m.freshTokens), wallMs: addCost(undefined, m.wallMs) })
+    } : { ...m, agents: m.agents || [], verifyRounds: addCost(undefined, m.verifyRounds), verifyResumes: addCost(undefined, m.verifyResumes), waits: addCost(undefined, m.waits), wallMs: addCost(undefined, m.wallMs) })
   }
   for (const sk of p.skeletons || []) skeletons.set(sk.slug, [...(skeletons.get(sk.slug) || []), ...sk.events])
 }
 const claudeCodeVersion = prepasses.find(p => p?.claudeCodeVersion)?.claudeCodeVersion || args.versions?.claudeCode || 'unknown'
 
+const roleTokens = (agents, role) => (agents || []).filter(a => a.role === role).reduce((t, a) => addCost(t, a.freshTokens), null)
+
 const implementation = {
   milestones: args.milestones.map(m => {
     const s = signals.get(m.slug) || {}
-    return { number: m.number, slug: m.slug, dispatches: s.dispatches || 0, verifyRounds: s.verifyRounds ?? null, freshTokens: s.freshTokens ?? null, wallMs: s.wallMs ?? null }
+    const tokens = { lead: roleTokens(s.agents, 'lead'), implementers: roleTokens(s.agents, 'implementer'), verifiers: roleTokens(s.agents, 'verifier') }
+    return {
+      number: m.number, slug: m.slug, leadRounds: s.leadRounds || 0, implementers: s.implementers || 0,
+      verifyRounds: s.verifyRounds ?? null, verifyResumes: s.verifyResumes ?? null, waits: s.waits ?? null,
+      tokens, freshTokens: addCost(addCost(tokens.lead, tokens.implementers), tokens.verifiers), wallMs: s.wallMs ?? null,
+    }
   }),
   orchestrator: prepasses.filter(Boolean).reduce((o, p) => ({
     freshTokens: addCost(o.freshTokens, p.orchestrator?.freshTokens),
@@ -171,9 +210,45 @@ const implementation = {
   }), { freshTokens: null, wallMs: null }),
 }
 
-const troubled = s => !s || s.blocked || s.dispatches > 1 || s.verifierFails > 0 || s.errors > 0 || s.writesOutsidePaths.length > 0 || s.testRuns === 0
+const troubled = s => !s || s.blocked || s.leadRounds > 1 || s.verifierFails > 0 || s.errors > 0 || s.writesOutsidePaths.length > 0 || s.testRuns === 0
 
-const planning = planningPrepasses.filter(Boolean)
+const PARTS = ['before plan', 'plan stage']
+const ROLE_LABELS = ['reviewer · full', 'reviewer · diff', 'lookup · fact job', 'lookup · nested', 'spike', 'researcher', 'advisor', 'workflow', 'other']
+const roleLabel = a => a.role === 'reviewer' ? (a.mode === 'diff' ? 'reviewer · diff' : 'reviewer · full')
+  : a.role === 'workflow' ? 'workflow'
+  : a.role === 'lookup' ? (a.parentId ? 'lookup · nested' : 'lookup · fact job')
+  : a.role
+const planning = planningPrepasses.map((p, i) => p && { p, s: planningSessions[i] }).filter(Boolean).map(({ p, s }) => {
+  const agents = p.agents || []
+  const rows = []
+  for (const part of PARTS) {
+    const main = part === 'before plan' ? p.main?.beforePlan : p.main?.planStage
+    rows.push({ part, role: 'main session', count: null, freshTokens: main?.freshTokens ?? null, time: main?.wallMs ?? null })
+    for (const label of ROLE_LABELS) {
+      const group = agents.filter(a => a.part === part && roleLabel(a) === label)
+      if (!group.length) continue
+      rows.push({
+        part, role: label, count: group.length,
+        freshTokens: group.reduce((t, a) => addCost(t, a.freshTokens), null),
+        harnessTokens: group.reduce((t, a) => addCost(t, a.harnessTokens), null),
+        time: group.reduce((t, a) => addCost(t, a.agentMs), null),
+      })
+    }
+  }
+  return {
+    id: p.id || s.id, stages: p.stages || s.stage, planStartRef: p.planStartRef, rows,
+    reviews: { full: agents.filter(a => a.role === 'reviewer' && a.mode !== 'diff').length, diff: agents.filter(a => a.role === 'reviewer' && a.mode === 'diff').length },
+    researchJobs: { fact: agents.filter(a => a.role === 'lookup' && !a.parentId).length, premise: agents.filter(a => a.role === 'spike').length, survey: agents.filter(a => a.role === 'researcher').length },
+    reports: agents.map(a => a.report).filter(Boolean),
+    questionRounds: p.questionRounds, statusResets: p.statusResets,
+  }
+})
+
+const models = [...new Set([
+  ...[...prepasses, ...planningPrepasses].filter(Boolean).flatMap(p => [...(p.milestones || []).flatMap(m => m.agents || []), ...(p.agents || [])]).filter(a => a.model).map(a => `${a.role}: ${a.model}`),
+  ...Object.entries(roles).map(([k, v]) => `retro ${k}: ${v.model}`),
+])].join(', ')
+const implementationJson = JSON.stringify(implementation)
 
 // 2. Blind readers
 const READ_SCHEMA = {
@@ -190,24 +265,42 @@ const READ_SCHEMA = {
       evidence: { type: 'array', items: { type: 'object', properties: { ref: { type: 'string' }, quote: { type: 'string' } }, required: ['ref', 'quote'] } },
     }, required: ['summary', 'evidence'] } },
     went_well: { type: 'array', items: { type: 'string' } },
+    research: { type: 'array', items: { type: 'object', properties: {
+      report: { type: 'string' }, kind: { type: 'string' }, verdict: { type: 'string' }, confidence: { type: 'string' }, restsOn: { type: 'string' }, note: { type: 'string' },
+    }, required: ['report'] } },
   },
   required: ['milestone', 'mode', 'timeline', 'findings', 'went_well'],
 }
 
 phase('Read')
+const planningDirs = planningSessions.map(sessionDir).join(' or ') || '(no planning session)'
+const implDirs = implSessions.map(sessionDir).join(' or ') || '(no implement session)'
+
 const planningRead = () => agent(`${ONLY_JOB}
 
 MODE: full
 
-You are a blind reader for the planning sessions (the spec and plan stages) of the change in ${args.changeDir}. You have not seen what the implementing agents said about their own work, and you must not look for it — do not open any report file in the change folder.
+You are a blind reader for the planning sessions (the plan stage) of the change in ${args.changeDir}. You have not seen what the implementing agents said about their own work, and you must not look for it — do not open the implementation report in the change folder. The research reports are readable.
+
+${LAYOUT(planningDirs)}
 
 Read:
 - the planning log first, and the planning transcripts in place where the log is not enough: ${args.planningLog || '(no planning log given)'}${planningSessions.length ? `; transcripts ${planningSessions.map(x => x.path).join(', ')}` : ''}
-- the spec: ${args.spec}, with its writer-gap list and \`# premises:\`
-- the plan: ${args.plan}, with its writer-gap list and \`# premises:\`
-- the planning cost metrics: ${JSON.stringify(planning)}
+- the spec: ${args.spec}, with its Premises table and its <!-- writer-gaps --> comment
+${args.plan ? `- the plan: ${args.plan}, with its \`# premises:\` and \`# writerGaps:\` blocks` : '- no plan file: a small-tier change'}
+${args.research?.dir ? `- the research reports: ${args.research.dir}` : ''}
+${args.research?.index ? `- the research index: ${args.research.index}` : ''}
+- the planning cost: ${JSON.stringify(planning)}
 
-Look for: research or review whose cost did not match the risk; a plan gap the self-review should have caught; status resets and re-reviews; questions the user had to ask that a stage should have answered.
+Look for:
+- work before the plan skill that belonged in the stage, or was wasted
+- Workflow-tool runs before the plan skill and what they cost
+- research sized wrong; research re-run though the index held a settled row at the same version; experiments or an advisor on a normal premise
+- a spec Premises row that disagrees with its report's Conclusion; a Conclusion resting only on a vendor benchmark or secondary summary; a refuted or unverified premise not taken to the user
+- a gap the joint review should have caught; a substantive edit with no diff review
+- status resets; questions the user had to ask
+
+Fill \`research\` with one entry per research report: report path, kind (fact, premise or survey), verdict, confidence, what its Conclusion rests on, and a note.
 
 Report milestone as "planning". Every claim cites <file>:<line> and a short verbatim quote. Note what went well. You are done when the timeline is written and every finding has evidence.`,
   as('reader', { label: 'read:planning', phase: 'Read', schema: READ_SCHEMA }))
@@ -216,23 +309,28 @@ const reads = await parallel([
   ...args.milestones.map(m => () => {
     const s = signals.get(m.slug)
     const mode = troubled(s) ? 'full' : 'skim'
+    const agentList = s?.agents?.length
+      ? s.agents.map(x => ({ role: x.role, description: x.description, transcript: x.transcript }))
+      : (implSessions.length ? implSessions.map(x => x.path) : 'no transcript')
     return agent(`${ONLY_JOB}
 
 MODE: ${mode}
 
-You are a blind reader for milestone M${m.number} ${m.slug} of the change in ${args.changeDir}. You have not seen what the implementing agents said about their own work, and you must not look for it — do not open any report file in the change folder.
+You are a blind reader for milestone M${m.number} ${m.slug} of the change in ${args.changeDir}. You have not seen what the implementing agents said about their own work, and you must not look for it — do not open the implementation report in the change folder. The research reports are readable.
+
+${LAYOUT(implDirs)}
 
 Read:
 - the spec: ${args.spec}
-- the plan: ${args.plan} (milestone ${m.slug})
+- ${args.plan ? `the plan: ${args.plan} (milestone ${m.slug})` : `no plan file: a small-tier change, the spec is the whole contract; the milestone's paths are ${JSON.stringify(m.paths)}`}
 - the diff: \`git -C ${args.projectRoot} diff ${m.diffRange}\`
 - the signals: ${JSON.stringify(s || 'none — the pre-pass found nothing for this milestone')}
 - the skeleton timeline: ${JSON.stringify(skeletons.get(m.slug) || [])}
-- the transcripts: ${JSON.stringify(s?.transcripts || (implSessions.length ? implSessions.map(x => x.path) : 'no transcript'))}
+- the milestone's agents (role, description, transcript): ${JSON.stringify(agentList)}
 ${args.planningLog ? `- the planning log, when a finding may trace back to the spec or plan: ${args.planningLog}` : ''}
 
 ${mode === 'full'
-      ? 'Read the transcripts in full. Write the timeline. For every failure, retry or deviation, find the decisive point: the earliest step where an agent acted on a wrong belief, working back from the first visible symptom.'
+      ? `Read the transcripts in full. Read the lead's briefs and its review of each hand-back; a wrong belief often starts in a brief. Write the timeline. For every failure, retry or deviation, find the decisive point: the earliest step where an agent acted on a wrong belief, working back from the first visible symptom. When a finding traces to a premise, cite the research report the spec's Premises row links${args.research?.dir ? ` (reports are in ${args.research.dir})` : ''}.`
       : 'The signals look clean. Read the skeleton, the diff and the verifier\'s transcript; confirm the verification ran the named tests and checked what the criteria say. A passing run can still be a lucky pass. Read in full only if something does not add up.'}
 
 Every claim cites <file>:<line> and a short verbatim quote. Note what went well. You are done when the timeline is written and every finding has evidence.`,
@@ -260,6 +358,10 @@ const SYNTH_SCHEMA = {
       milestones: { type: 'array', items: { type: 'string' } },
     }, required: ['id', 'class', 'summary', 'decisive_ref', 'made_sense', 'severity'] } },
     went_well: { type: 'array', items: { type: 'string' } },
+    research: { type: 'array', items: { type: 'object', properties: {
+      report: { type: 'string' }, kind: { type: 'string' }, verdict: { type: 'string' }, confidence: { type: 'string' }, restsOn: { type: 'string' },
+      heldUp: { type: 'string', enum: ['held', 'contradicted', 'not tested'] }, evidence: { type: 'string' },
+    }, required: ['report', 'heldUp', 'evidence'] } },
   },
   required: ['outcome', 'findings', 'went_well'],
 }
@@ -277,11 +379,12 @@ const RECON_SCHEMA = {
 
 phase('Synthesize')
 const readsJson = JSON.stringify(reads.filter(Boolean))
+const planningResearch = reads[reads.length - 1]?.research || []
 const [synthesis, reconciliation] = await parallel([
   () => agent(`${ONLY_JOB}
 
 Merge the blind readers' findings for the change in ${args.changeDir} into one list. Merge duplicates; keep every distinct finding. Give each an id (F1, F2, …) and one fault class:
-- SPEC: the spec was ambiguous or wrong
+- SPEC: the spec was ambiguous or wrong, including a premise a research report settled wrongly
 - PLAN: the plan was ambiguous, wrong, or could not be built as written (a missing step, file, directory, type or pin)
 - SKILL: a skill, agent definition or prompt was missing, wrong or harmful
 - PROCESS: the workflow itself — a handoff, a verification step, the order of steps
@@ -291,7 +394,11 @@ For each, say how the action made sense to the agent at the time, given what was
 Write the outcome in two or three sentences from the verifier results in the readers' evidence — not from any report.
 
 Readers' output (JSON): ${readsJson}
-Planning cost metrics (JSON): ${JSON.stringify(planning)}
+Planning cost (JSON): ${JSON.stringify(planning)}
+Implementation cost (JSON): ${implementationJson}
+Research reports the planning reader listed (JSON): ${JSON.stringify(planningResearch)}
+
+Also fill \`research\`: one entry per research report in that list — report, kind, verdict, confidence, what it rests on, whether it held up (held, contradicted or not tested) judged against the milestone readers' evidence, and the evidence.
 
 You are done when every reader finding is in exactly one merged finding.`,
     as('retro', { label: 'synthesis', phase: 'Synthesize', schema: SYNTH_SCHEMA })),
@@ -300,6 +407,8 @@ You are done when every reader finding is in exactly one merged finding.`,
 Check every claim in the implementation report ${args.implReport} against the blind readers' evidence below and, where that is silent, against the transcripts and \`git -C ${args.projectRoot} log\`. A claim is a statement of fact: an outcome, a count, a test passing, a decision, a concern settled. Verdict per claim: confirmed, contradicted or unsupported, with evidence.
 
 Readers' output (JSON): ${readsJson}
+Implementation counts from the pre-pass (JSON): ${implementationJson}
+The report's Milestones table claims lead rounds, implementers and verify rounds (fresh / resumed) per milestone; the counts above are the pre-pass counts. Check those claims against them.
 
 You are done when every claim in the report has a verdict.`,
     as('retro', { label: 'reconcile', phase: 'Synthesize', schema: RECON_SCHEMA })),
@@ -349,14 +458,16 @@ if (!remediation) throw new Error('spec-retro: remediation returned no result')
 // 5. Write
 const written = await agent(`${ONLY_JOB}
 
-Write ${args.out} following the template ${args.template}. Fill every section from the JSON below; do not add findings of your own. Write nothing else.
+Write ${args.out} following the template ${args.template}. Fill every section from the JSON below; do not add findings of your own. A null field in it was not measured: write — for it. Write nothing else.
 
-Header facts: change ${args.changeDir}; commits ${args.milestones.map(m => m.diffRange).join(', ')}; models ${JSON.stringify(Object.fromEntries(Object.entries(roles).map(([k, v]) => [k, v.model])))}; kentra-rpir ${args.versions?.plugin || 'unknown'}; Claude Code ${claudeCodeVersion}; sessions ${args.sessions.map(s => s.missing ? `${s.id}: ${s.stage} (transcript missing)` : `${s.id}: ${s.stage}`).join(', ')}.
+Header facts: change ${args.changeDir}; commits ${args.milestones.map(m => m.diffRange).join(', ')}; tier ${args.plan ? 'standard' : 'small'}; models ${models}; kentra-rpir ${args.versions?.plugin || 'unknown'}; Claude Code ${claudeCodeVersion}; sessions ${args.sessions.map(s => s.missing ? `${s.id}: ${s.stage} (transcript missing)` : `${s.id}: ${s.stage}`).join(', ')}.
 ${missing.length ? `Missing transcripts — list these in Open questions too: ${missing.map(s => `${s.id}: ${s.stage} (transcript missing)`).join(', ')}` : ''}
 
 Readers (timelines): ${readsJson}
-Planning cost metrics (JSON): ${JSON.stringify(planning)}
-Implementation cost (JSON): ${JSON.stringify(implementation)} A null field was not measured; write — for it.
+Planning cost (JSON): ${JSON.stringify(planning)}
+harnessTokens is the Workflow tool's own count, shown beside fresh tokens for workflow rows, not added into them.
+Research (JSON): ${JSON.stringify(synthesis.research || [])}
+Implementation cost (JSON): ${implementationJson}
 Synthesis: ${JSON.stringify(synthesis)}
 Reconciliation (only the contradicted and unsupported claims; ${confirmedCount} other claims were confirmed): ${JSON.stringify(notConfirmed)}
 Remediation: ${JSON.stringify(remediation)}
@@ -373,4 +484,5 @@ return {
   actions: remediation.actions,
   planning,
   implementation,
+  research: synthesis.research || [],
 }

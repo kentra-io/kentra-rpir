@@ -30,14 +30,19 @@ a coarse `plan.yaml` with no steps and no code. At the `small` tier there is
 no plan: the spec is the contract of one milestone.
 - **Research jobs** run in the background while the conversation goes on: a
   `lookup` for a fact, a `spike` for a premise, a `researcher` for a survey.
-  A spike may run its own lookups and, for a critical premise, an `advisor`
-  that re-runs only the decisive experiment.
-- Each job writes one report, `## Conclusion` first (answer, verdict,
-  confidence, the source kinds it rests on), and appends one row to the
-  project's research index (JSONL). The main session reads only the
+  A spike or researcher may run its own lookups; a spike on a critical
+  premise also runs an `advisor` that re-runs only the decisive experiment.
+  A normal premise gets a docs check only: no experiments, no advisor.
+- Each job has one report, `## Conclusion` first (answer, verdict,
+  confidence, the source kinds it rests on), and one row in the project's
+  research index (JSONL). A fact job's lookup returns sources only; the main
+  session writes its report and row. The main session reads only the
   Conclusion and records it in the spec's Premises table.
 - One fresh `reviewer` reviews spec and plan together (a full review); each
   later edit of substance gets a diff review.
+- Workflow-tool runs may happen in the same session, often before the plan
+  skill loads. Their cost counts on the side of the plan skill where they
+  started.
 
 **Implementation** — the orchestrator builds milestones in their own
 worktrees, independent ones in parallel:

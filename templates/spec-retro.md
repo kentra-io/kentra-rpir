@@ -16,7 +16,7 @@
 | <sid> | before the plan skill | main session | — | <n> | <m.m> min wall |
 | <sid> | before the plan skill | <role> | <n> | <n> | <m.m> min |
 | <sid> | plan stage | main session | — | <n> | <m.m> min wall |
-| <sid> | plan stage | reviewer · full · diff · lookup · fact job · spike · researcher · lookup · nested · advisor · other | <n> | <n> | <m.m> min |
+| <sid> | plan stage | <role: reviewer · full, reviewer · diff, lookup · fact job, spike, researcher, lookup · nested, advisor, workflow, other> | <n> | <n> | <m.m> min |
 
 Plan skill loaded at <ref>; work before it is not planning cost. Question rounds: <n> · Status resets: <n> · Reviews: full <n>, diff <n> · Research jobs: fact <n>, premise <n>, survey <n>
 

@@ -115,6 +115,7 @@ export const fixtures = {
         'prompt names the plan skill and the subagents dir': (_, c) => { const p = prompt(c, 'prepass:planning:s1'); return p.includes('kentra-rpir:plan') && p.includes('/p/s1/subagents/') },
         'prompt names the workflow journals and their agents': (_, c) => { const p = prompt(c, 'prepass:planning:s1'); return p.includes('/p/s1/workflows/') && p.includes('/p/s1/subagents/workflows/') },
         'workflow rows in both parts with harness tokens': (r) => { const rows = r.planning[0].rows; const b = rows.find(x => x.part === 'before plan' && x.role === 'workflow'); const p = rows.find(x => x.part === 'plan stage' && x.role === 'workflow'); return b && b.count === 1 && b.freshTokens === 7000 && b.harnessTokens === 7500 && p && p.count === 1 },
+        'planning schema allows the workflow role': (_, c) => c.agents.find(a => a.label === 'prepass:planning:s1').schema.properties.agents.items.properties.role.enum.includes('workflow'),
         'workflow agents are not research jobs or reviews': r => JSON.stringify(r.planning[0].researchJobs) === JSON.stringify({ fact: 0, premise: 1, survey: 0 }) && r.planning[0].reviews.full === 1 && r.planning[0].reviews.diff === 0,
       },
     },

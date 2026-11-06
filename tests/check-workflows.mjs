@@ -186,6 +186,9 @@ async function runCase(run, args, { overrides, allNull } = {}) {
 }
 
 const dir = 'workflows'
+for (const key of Object.keys(fixtures)) {
+  if (!readdirSync(dir).includes(`${key}.js`)) fail(key, `fixture has no workflows/${key}.js`)
+}
 for (const f of readdirSync(dir).filter(f => f.endsWith('.js'))) {
   const wf = basename(f, '.js')
   let loaded
@@ -266,7 +269,7 @@ try {
     run: new AsyncFunction(
       'args', 'agent', 'parallel', 'pipeline', 'log', 'phase', 'workflow', 'budget',
       'Date', 'Math', 'process', 'require',
-      'return await workflow("kentra-rpir:research", {})',
+      'return await workflow("kentra-rpir:grandchild", {})',
     ),
   }
   const workflow = makeWorkflowStub({

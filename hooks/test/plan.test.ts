@@ -244,3 +244,22 @@ test("a stale map at the session root loses to the project the dispatches name",
   }, '/code/banank'), 'continued-session', [POINTER])
   expect(r.plan?.changeFolder).toBe(NESTED_FOLDER)
 })
+
+test('loadPlan reads a small-tier change as one milestone', async () => {
+  const map = { '/proj/.kentra-rpir/sessions.map': SESSIONS_MAP }
+  const folder = 'docs/changes/2026-10-16-milestone-graph-pane'
+  const small = await loadPlan(stub({
+    ...map, [`/proj/${folder}/spec.md`]: '---\ntitle: Fix the pane\ntier: small\n---\n\n## Problem\n',
+  }), SELF)
+  expect(small.error).toBe(null)
+  expect(small.plan).toEqual({
+    title: 'Fix the pane', changeFolder: folder,
+    milestones: [{ number: 1, slug: 'milestone-graph-pane', goal: 'Fix the pane', dependsOn: [] }],
+  })
+
+  const standard = await loadPlan(stub({
+    ...map, [`/proj/${folder}/spec.md`]: '---\ntitle: Fix the pane\ntier: standard\n---\n',
+  }), SELF)
+  expect(standard.plan).toBe(null)
+  expect(standard.error).toBe(`cannot read ${folder}/plan.yaml`)
+})

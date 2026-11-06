@@ -4,16 +4,16 @@ import {
   countByStatus, emptyRun, parseDispatch, parseMerge, parseOutcome, reduce, runClock, viewOf,
 } from '../tracker'
 
-// First lines of skills/implement/implementer-prompt.md and verifier-prompt.md,
+// First lines of skills/implement/lead-prompt.md and verifier-prompt.md,
 // byte for byte. tests/check-templates.sh greps this file for both lines:
 // change them only together with the templates and that script.
-const IMPL_TEMPLATE_LINE = 'You are implementing milestone M{{number}} `{{slug}}` of the change "{{title}}".'
+const LEAD_TEMPLATE_LINE = 'You are leading milestone M{{number}} `{{slug}}` of the change "{{title}}".'
 const VERIFY_TEMPLATE_LINE = 'You are verifying milestone M{{number}} `{{slug}}` of the change "{{title}}".'
 
 const fill = (line: string, n: number, slug: string, title: string): string =>
   line.replace('{{number}}', String(n)).replace('{{slug}}', slug).replace('{{title}}', title)
 const implPrompt = (n: number, slug: string): string =>
-  `${fill(IMPL_TEMPLATE_LINE, n, slug, 'T')}\n\n**Work only in \`.worktrees/${slug}\`**, on branch ...\n`
+  `${fill(LEAD_TEMPLATE_LINE, n, slug, 'T')}\n\n**Work only in \`.worktrees/${slug}\`**, on branch ...\n`
 const verifyPrompt = (n: number, slug: string): string =>
   `${fill(VERIFY_TEMPLATE_LINE, n, slug, 'T')}\n\nWork only in \`.worktrees/${slug}\` ...\n`
 const mergeCmd = (n: number, slug: string): string =>
@@ -57,7 +57,8 @@ test('parseDispatch reads both prompt templates', () => {
 })
 
 test('parseDispatch reads the real template first lines', () => {
-  expect(parseDispatch(fill(IMPL_TEMPLATE_LINE, 3, 'store', 'T'))).toEqual({ number: 3, slug: 'store', role: 'impl' })
+  expect(parseDispatch(fill(LEAD_TEMPLATE_LINE, 3, 'store', 'T'))).toEqual({ number: 3, slug: 'store', role: 'impl' })
+  expect(parseDispatch('You are implementing milestone M3 `store` of the change "T".')).toEqual({ number: 3, slug: 'store', role: 'impl' })
   expect(parseDispatch(fill(VERIFY_TEMPLATE_LINE, 3, 'store', 'T'))).toEqual({ number: 3, slug: 'store', role: 'verify' })
 })
 
@@ -71,6 +72,8 @@ test('parseOutcome and parseMerge', () => {
   expect(parseOutcome('**VERDICT:** FAIL')).toBe('FAIL')
   expect(parseOutcome('STATUS: BLOCKED\nretried\nSTATUS: DONE')).toBe('DONE')
   expect(parseOutcome('VERDICT: DONE')).toBeNull()
+  expect(parseOutcome('STATUS: WAITING\nWAITING: M2 store schema')).toBe('WAITING')
+  expect(parseOutcome('VERDICT: WAITING')).toBeNull()
   expect(parseOutcome('the STATUS: DONE line is missing')).toBeNull()
   expect(parseOutcome('no report here')).toBeNull()
 
@@ -344,4 +347,66 @@ test('countByStatus counts the new statuses', () => {
     waiting: 1, ready: 0, implementing: 0, implemented: 1, verifying: 0, verified: 1,
     failed: 1, fixing: 0, passed: 1, merged: 0, stuck: 0,
   })
+})
+
+const leadSpawn = (agentId: string, description: string, at: number): TrackerEvent =>
+  ({ kind: 'spawn', agentId, toolUseId: `tu-${agentId}`, prompt: 'see the prompt file', description, subagentType: 'kentra-rpir:lead', at })
+const resume = (agentId: string, at: number): TrackerEvent => ({ kind: 'resume', agentId, at })
+
+test('Lead M2 dispatch then Verify M2 dispatch', () => {
+  let s = apply(withPlan(planOf([[2, 'store', []]])), [spawn('l2', implPrompt(2, 'store'), 1000)])
+  expect(viewOf(s, 'store', 2000).status).toBe('implementing')
+  s = apply(s, [done('l2', 'STATUS: DONE', 3000), spawn('v2', verifyPrompt(2, 'store'), 4000)])
+  expect(viewOf(s, 'store', 5000).status).toBe('verifying')
+})
+
+test('a lead that ends WAITING stays implementing across its resume, in one round', () => {
+  let s = apply(withPlan(planOf([[2, 'store', []]])), [spawn('l2', implPrompt(2, 'store'), 1000)])
+  s = apply(s, [done('l2', 'STATUS: WAITING\nWAITING: M2 store schema', 2000)])
+  expect(viewOf(s, 'store', 2500).status).toBe('implementing')
+  s = apply(s, [resume('l2', 3000)])
+  expect(viewOf(s, 'store', 3500)).toMatchObject({ status: 'implementing', attempts: 1 })
+  s = apply(s, [done('l2', 'STATUS: DONE', 4000)])
+  expect(viewOf(s, 'store', 4500).status).toBe('implemented')
+})
+
+test('a description-only Lead M2 store dispatch is recognised', () => {
+  const s = apply(withPlan(planOf([[2, 'store', []]])), [leadSpawn('l2', 'Lead M2 store', 1000)])
+  expect(s.agents['l2']).toMatchObject({ number: 2, slug: 'store', role: 'impl' })
+  expect(viewOf(s, 'store', 2000).status).toBe('implementing')
+  // a lead agent type with no milestone description is none
+  expect(reduce(s, leadSpawn('x', 'Lead the way', 3000))).toBe(s)
+})
+
+test('a resumed lead and verifier count their rounds', () => {
+  let s = withPlan(planOf([[2, 'store', []]]))
+  const steps: Array<[TrackerEvent, Status]> = [
+    [spawn('l2', implPrompt(2, 'store'), 1000), 'implementing'],
+    [done('l2', 'STATUS: DONE', 5000), 'implemented'],
+    [spawn('v2', verifyPrompt(2, 'store'), 6000), 'verifying'],
+    [done('v2', 'VERDICT: FAIL\nFINDINGS: x', 9000), 'failed'],
+    [resume('l2', 10_000), 'fixing'],
+    [done('l2', 'STATUS: DONE', 14_000), 'implemented'],
+    [resume('v2', 15_000), 'verifying'],
+    [done('v2', 'VERDICT: PASS', 16_000), 'passed'],
+    [bash(mergeCmd(2, 'store'), 17_000), 'merged'],
+  ]
+  for (const [ev, want] of steps) {
+    s = reduce(deepFreeze(s), ev)
+    const at = ev.kind === 'plan' ? 0 : ev.at
+    expect(viewOf(s, 'store', at).status, `after ${ev.kind} at ${at}`).toBe(want)
+    if (ev.kind === 'resume' && ev.agentId === 'l2') {
+      const v = viewOf(s, 'store', 11_000)
+      expect(v.attempts).toBe(2)
+      expect(v.implMs).toBe((5000 - 1000) + (11_000 - 10_000)) // excludes the verifier's span
+      expect(v.runningAgentId).toBe('l2')
+    }
+  }
+  const v = viewOf(s, 'store', 99_000)
+  expect(v.attempts).toBe(2)
+  expect(v.verifyRounds).toBe(2)
+  expect(v.implMs).toBe((5000 - 1000) + (14_000 - 10_000))
+  expect(v.verifyMs).toBe((9000 - 6000) + (16_000 - 15_000))
+  expect(v.lastAgentId).toBe('v2')
+  expect(s.agents['l2']).toMatchObject({ rounds: 1, pastMs: 4000, resumedAt: 10_000 })
 })

@@ -243,3 +243,22 @@ test("an agent's own transcript gives its outcome when the main transcript lacks
   // An agent the engine still runs keeps running.
   expect(applyReports(s, { a1: 'DONE' }, 200, { a1: 'running' }).agents['a1']!.endedAt).toBe(null)
 })
+
+test('reconciling a run with a resumed lead twice changes nothing more', () => {
+  const rows: TranscriptRow[] = [
+    dispatch('implementing', 1, 'alpha', 'a1'),
+    handBack('a1', 'STATUS: DONE'),
+    dispatch('verifying', 1, 'alpha', 'v1'),
+    handBack('v1', 'VERDICT: FAIL'),
+  ]
+  const ended = reconcile(withPlan(emptyRun(0)), rows, 1000)
+  const resumed = reduce(ended, { kind: 'resume', agentId: 'a1', at: 2000 })
+  expect(resumed.agents['a1']).toMatchObject({ rounds: 1, endedAt: null })
+  const once = reconcile(resumed, rows, 3000, { a1: 'running', v1: 'ended' })
+  expect(reconcile(once, rows, 4000, { a1: 'running', v1: 'ended' })).toEqual(once)
+  expect(viewOf(once, 'alpha', 5000).status).toBe('fixing')
+  // a lead the engine runs again after a verifier ended is a new round
+  const live = reconcile(ended, rows, 3000, { a1: 'running' })
+  expect(live.agents['a1']).toMatchObject({ rounds: 1, resumedAt: 3000, endedAt: null })
+  expect(reconcile(live, rows, 4000, { a1: 'running' })).toEqual(live)
+})

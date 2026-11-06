@@ -53,12 +53,10 @@ Gather the args:
   `diffRange`.
   - **`standard` tier:** every milestone in `plan.yaml`.
   - **`small` tier:** there is no `plan.yaml`, and one milestone, number `1`.
-    Take its slug and `paths` from milestone 1's `contract` in
-    `.kentra-rpir/implement-state.json` when that file still names this
-    change. Otherwise derive them as "Small tier" in
-    `${CLAUDE_PLUGIN_ROOT}/skills/implement/SKILL.md` does: the slug is the
-    change folder's name without its date, the paths are what the spec's
-    Layout and requirements name.
+    Its slug is the change folder's name without its `YYYY-MM-DD-` date.
+    Its `paths` are the files `git diff --name-only <merge>^1..<merge>`
+    lists. Its check is the repo's standard check, from `AGENTS.md`,
+    `CLAUDE.md`, the README or the CI config.
 - **`priorRetros`:** every other `<changesDir>/*/spec-retro.md`.
 
 Run the `kentra-rpir:spec-retro` workflow in the background with:
@@ -91,11 +89,13 @@ Fix what the user asks for on the integration branch:
 - **Anything bigger:** build it as the implement stage builds a milestone.
   Dispatch a fresh lead in a new milestone worktree from the integration
   head, with the user's request as `guidance`, numbered and named after the
-  milestone whose code it changes. Then a fresh verifier, then the merge:
-  steps 2, 4 and 5 of `${CLAUDE_PLUGIN_ROOT}/skills/implement/SKILL.md`.
+  milestone whose code it changes. Then the lead's hand-backs, a fresh
+  verifier and the merge: steps 2 to 5 of
+  `${CLAUDE_PLUGIN_ROOT}/skills/implement/SKILL.md`. At the `small` tier,
+  build the milestone's fields as "Small tier" there says.
 
-Run the check after each fix: the plan's, or at the `small` tier the
-milestone contract's.
+Run the check after each fix: the plan's, or at the `small` tier the repo's
+standard check.
 
 ## 4. Retro review
 

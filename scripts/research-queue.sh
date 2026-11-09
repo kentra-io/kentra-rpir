@@ -1,7 +1,7 @@
 #!/bin/sh
 # research-queue.sh — the job queue for research jobs, one queue per Claude
 # Code session. POSIX sh. add, next and done hold one lock for the whole queue
-# directory (the directory <queue dir>/.lock, taken with mkdir); a queue file
+# directory (the file <queue dir>/.lock, created under set -C); a queue file
 # is rewritten atomically (temp file in the same directory, then mv).
 #
 #   research-queue.sh add  --session <id> --dir <report dir> <kind> <slug> <question>
@@ -89,12 +89,13 @@ tab=$(printf '\t')
 lock() { # take the queue-dir lock; the EXIT trap releases it
   mkdir -p "$qdir" || die 1 "cannot create $qdir"
   tries="${RESEARCH_QUEUE_LOCK_TRIES:-10}"; tried=0
-  until mkdir "$qdir/.lock" 2> /dev/null; do
+  # set -C opens with O_EXCL; uutils mkdir (Ubuntu 26.04) is not exclusive under a race
+  until (set -C; : > "$qdir/.lock") 2> /dev/null; do
     tried=$((tried + 1))
     [ "$tried" -lt "$tries" ] || die 1 "queue locked; remove $qdir/.lock if no other call is running"
     sleep 1
   done
-  trap 'rmdir "$qdir/.lock" 2> /dev/null' EXIT
+  trap 'rm -f "$qdir/.lock"' EXIT
 }
 
 case "$cmd" in

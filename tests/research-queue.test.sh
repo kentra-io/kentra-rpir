@@ -169,12 +169,12 @@ checkeq "6 concurrent adds have 6 distinct report paths"   "$(q list --session "
 
 lockdir="$proj/.kentra-rpir/research-queue/.lock"
 check "no lock left after normal calls" test ! -e "$lockdir"
-mkdir "$lockdir"
+: > "$lockdir"
 err=$(RESEARCH_QUEUE_LOCK_TRIES=1 q "done" --session "$A" 1 2>&1 > /dev/null)
 checkeq "done on a held lock exits 1" "$(RESEARCH_QUEUE_LOCK_TRIES=1 q "done" --session "$A" 1 > /dev/null 2>&1; echo $?)" "1"
 case "$err" in *"$lockdir"*) echo "ok   - lock error names the lock dir" ;; *) echo "FAIL - lock error names the lock dir (got [$err])"; fails=$((fails + 1)) ;; esac
-check "a failed call leaves the foreign lock in place" test -d "$lockdir"
-rmdir "$lockdir"
+check "a failed call leaves the foreign lock in place" test -e "$lockdir"
+rm "$lockdir"
 q "done" --session "$A" 1
 checkeq "done works once the lock is removed" "$?" "0"
 check "no lock left after done" test ! -e "$lockdir"

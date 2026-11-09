@@ -196,7 +196,11 @@ requirement.
 - `contract`: the repo's standard `check`; one criterion per behaviour,
   named after the test that proves it, at the level of the spec's
   requirement, or `human:` and what the user checks when no test or command
-  can; and `paths`;
+  can; and `paths`. When a research report gives a machine-readable
+  worklist (an inventory, a mapping), one criterion runs a script in the
+  change folder that checks every entry under the milestone's `paths`: each
+  is present at the head, or dropped by a spec line the script quotes. It
+  exits 1 listing each miss;
 - `depends-on`: every milestone whose output this one uses. A milestone
   without it is a root and starts at once;
 - `rules`: references only (a skill name or a repo path) to what the lead

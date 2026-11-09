@@ -331,16 +331,18 @@ When every milestone is merged, or blocked and settled with the user:
    every claim in it against the transcripts.
 3. Set the spec's `status: in-review`.
 4. Commit the change folder on the integration branch.
-5. Push:
+5. When `implement.push` is true, push:
    `git -C <worktreesDir>/<slug> push -u origin <branchPrefix><slug>`.
-6. When `implement.openPullRequest` is true, the remote is GitHub, and
-   `gh auth status` succeeds: open a pull request whose body links the spec,
+   Otherwise tell the user the branch is ready to push, and push only when
+   they ask.
+6. When the branch is pushed, `implement.openPullRequest` is true, the
+   remote is GitHub, and `gh auth status` succeeds: open a pull request whose body links the spec,
    the plan and `impl-report.md`.
 7. Delete `.kentra-rpir/implement-state.json`.
 
-The stage is done when the integration branch is pushed with `impl-report.md`
-and the spec says `status: in-review`. Leave the integration worktree in
-place. Then end with one line:
+The stage is done when the integration branch has `impl-report.md`, pushed
+when `implement.push` is true, and the spec says `status: in-review`. Leave
+the integration worktree in place. Then end with one line:
 
 `Implemented on <branch> in <worktreesDir>/<slug>: <change folder>/impl-report.md[, <PR url>]. Next: /kentra-rpir:review.`
 

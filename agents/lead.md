@@ -38,25 +38,21 @@ milestone, the spec sections you need, your briefs and the hand-backs.
    - **A launch notice** ("Async agent launched"): the implementer runs in
      the background. Its hand-back reaches you as a message between your
      tool calls, but only while your turn is still going. Keep the turn
-     going with waits of one Bash call each, looking for the message after
-     every wait. While HEAD is still at the piece's base, wait for the
-     implementer's commit, at most 240 s so your cache stays warm. Run it
-     with the Bash `timeout` at 300000:
+     going: wait with the Monitor tool (load it with ToolSearch
+     `select:Monitor`) on an until-loop that ends once HEAD has moved past
+     the piece's base. The report follows the commit within moments.
 
      ```sh
-     cd <worktree> && i=0
-     while [ "$i" -lt 12 ] && [ "$(git rev-parse HEAD)" = "<piece base sha>" ]; do sleep 20; i=$((i + 1)); done
-     git log --oneline <piece base sha>..HEAD
+     until [ "$(git -C <worktree> rev-parse HEAD)" != "<piece base sha>" ]; do sleep 20; done
      ```
 
-     Once HEAD is past the base, the report follows within moments: wait
-     with `sleep 20` alone. The implementer is already running: dispatch
-     it once, and write your report only after its hand-back.
+     The implementer is already running: dispatch it once, and write your
+     report only after its hand-back. Foreground `sleep` is refused, so do
+     not wait with it.
    - **Hand back `STATUS: WAITING`**, naming the implementer's description,
-     when your turn must end while it runs: after three 240 s waits with no
-     commit, after ten short waits with no hand-back, or where the shell
-     refuses `sleep`. Its report then goes to the orchestrator, which
-     resumes you with it verbatim; continue from step 5.
+     only when Monitor is unavailable or your turn must end while it runs.
+     Its report then goes to the orchestrator, which resumes you with it
+     verbatim; continue from step 5.
 5. **Review each hand-back** before the next piece:
    - its CHECK line shows the command, its exit status and a summary line;
    - its commits touch only the milestone's paths

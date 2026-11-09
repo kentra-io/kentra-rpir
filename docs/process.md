@@ -158,6 +158,7 @@ implement:
   worktreesDir: .worktrees          # relative to the project root; gitignored
   branchPrefix: rpir/
   openPullRequest: true             # only when the remote is GitHub and gh is authenticated
+  push: true                        # false: the stages commit locally and push only when the user asks
 ```
 
 - A project points a role at its own `.claude/agents/<name>.md` to tune the system
@@ -312,7 +313,8 @@ the repo and decides how. There are no steps and no code.
   - `deliverables`: every file, and each type it introduces;
   - `contract`: the repo's standard `check`; one criterion per behaviour, named
     after the test that proves it, or `human:` and what the user checks; and
-    `paths`, the milestone's write-set;
+    `paths`, the milestone's write-set. When research gives a machine-readable
+    worklist, one criterion is a script that checks every entry under `paths`;
   - `depends-on`: every milestone whose output it uses. Order in the file creates
     no edge;
   - `rules`.
@@ -376,7 +378,8 @@ the plan's `rules` call for).
   are pinned in the earliest milestone; independent milestones do not overlap;
   milestones are coarse, with no steps and no code, 3 to 8 of them or a stated
   reason; criteria name their test; `rules` are references and relevant; nothing
-  beyond the spec; `milestoned-plan-dag validate` passes.
+  beyond the spec; `milestoned-plan-dag validate` passes; every check the spec or
+  plan gives runs, prints what it claims at the base and fails on a bad line.
 - **Rules:** nothing conflicts with the constitution or a project rule.
 
 **A diff review** checks that the diff does what the user decided and nothing
@@ -566,9 +569,10 @@ agent starts each shell command with `cd <worktree> &&`.
 6. **Finish.** Show the user every pending `human:` criterion, in the integration
    worktree, and record each answer; a rejected one is fixed by a fresh lead in a
    new milestone worktree, verified and integrated first. Then write
-   `impl-report.md`, set `status: in-review`, commit, push the integration branch,
-   open a pull request when `implement.openPullRequest` is set, the remote is
-   GitHub and `gh` is authenticated, and delete the state file.
+   `impl-report.md`, set `status: in-review`, commit, push the integration branch
+   when `implement.push` is set (otherwise tell the user it is ready to push),
+   open a pull request when it is pushed, `implement.openPullRequest` is set, the
+   remote is GitHub and `gh` is authenticated, and delete the state file.
 
 ### Milestone leads
 
@@ -612,13 +616,11 @@ A subagent's Agent tool may start an implementer in the background even when the
 lead asks for the foreground. The implementer's hand-back then reaches the lead as a
 message only while the lead's turn is still going. So:
 
-1. The lead keeps its turn going with bounded waits: while the branch head has not
-   moved past the piece's base, a loop of 20-second sleeps up to 240 seconds, which
-   keeps its cache warm; once the implementer has committed, short waits until the
-   hand-back arrives.
-2. When its turn must end while the implementer runs (three long waits with no
-   commit, ten short waits with no hand-back, or a shell that refuses `sleep`), the
-   lead hands back `STATUS: WAITING`, naming the implementer.
+1. The lead keeps its turn going with the Monitor tool, on an until-loop that ends
+   once the branch head has moved past the piece's base; the hand-back follows the
+   commit. The harness refuses a foreground `sleep`.
+2. When Monitor is unavailable or its turn must end while the implementer runs,
+   the lead hands back `STATUS: WAITING`, naming the implementer.
 3. The implementer's report then goes to the orchestrator. The orchestrator sets
    the milestone's phase to `waiting`, and when the report arrives resumes the same
    lead with it verbatim. That continues the same round.

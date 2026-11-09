@@ -120,7 +120,8 @@ When the workflow finishes:
 When the user has finished both reviews:
 
 1. Set the spec's `status: done`.
-2. Commit the change folder, and push when on the integration branch.
+2. Commit the change folder. Push when on the integration branch and
+   `implement.push` is true.
 
 Merging the pull request is the user's call. Once it is merged, remove the
 integration worktree:

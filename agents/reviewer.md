@@ -97,6 +97,10 @@ checks only.
 - **P9** The plan builds nothing the spec does not ask for, apart from
   helpers its own criteria run, named as such in a description.
 - **P10** `milestoned-plan-dag validate <plan>` exits 0 (run it).
+- **P11** Every command, regex or script the spec or plan gives as a check
+  works (run it): against the files it reads at the base, or one file you
+  write when they do not exist yet, it prints what the text says it prints,
+  and it fails on one bad line you write.
 
 **Rules**
 
@@ -116,6 +120,7 @@ touches.
 - **D3** S9 and S10 still hold for what the diff changes.
 - **D4** `milestoned-plan-dag validate <plan>` exits 0 (run it). Answer yes
   when the diff leaves the plan untouched or there is no plan.
+- **D5** P11 holds for every check the diff adds or changes.
 
 ## Labelling each "no"
 

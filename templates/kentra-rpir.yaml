@@ -28,3 +28,4 @@ implement:
   worktreesDir: .worktrees          # relative to the project root; gitignored
   branchPrefix: rpir/
   openPullRequest: true             # only when the remote is GitHub and gh is authenticated
+  push: true                        # false: the stages commit locally and push only when the user asks

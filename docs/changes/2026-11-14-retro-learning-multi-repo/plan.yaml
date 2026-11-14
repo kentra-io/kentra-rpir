@@ -1,0 +1,635 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kentra-io/milestoned-plan-dag/v0.4.0/schema/plan.schema.json
+schemaVersion: 0.4.0
+description: |
+  Builds docs/changes/2026-11-14-retro-learning-multi-repo/spec.md. Read the
+  spec first: its Requirements (numbered 1–35), Layout, Abstractions and
+  Design hold every decision. analysis.md in the same folder is the evidence
+  behind Problem; read it only when a requirement's reason is unclear.
+
+  **Two repositories.** The project root is this repository (kentra-rpir).
+  M1 works in the sibling repository `../milestoned-plan-dag`, a separate git
+  repository (P4). M1's integration branch
+  `rpir/2026-11-14-retro-learning-multi-repo` and its worktrees live in that
+  repository, cut from its current `main`; add `.worktrees/` to its
+  `.git/info/exclude` when it is not ignored. M1's check and paths are
+  relative to that repository's worktree root. Every other milestone works
+  in kentra-rpir. This plan is written in schema 0.4.0 because the `repo`
+  field is what M1 builds.
+
+  **Before implement starts** (the planning session does both when it
+  commits): `docs/retro-backlog.md` is committed with its pending entries,
+  and the retro analysis sits in this change folder as `analysis.md`.
+
+  **Standard checks.**
+  - kentra-rpir: `command -v claude >/dev/null && sh tests/run.sh`. At base
+    it fails two tests in `hooks/test/nav.test.ts` ("ui.scroll routing",
+    "ui.focus routing": "no implementation for ui.focus", Claude Code
+    2.1.325). M2 fixes them first; until M2 merges, a milestone's check
+    counts as green when only those two fail.
+  - milestoned-plan-dag: `go build ./... && go vet ./... && go test ./...`
+    at its worktree root (its CI runs the same three).
+  - From M5 on, `MILESTONED_PLAN_DAG` points at a binary built from M1's
+    merged integration branch (`go build -o <abs path> ./cmd/milestoned-plan-dag`
+    in its integration worktree), until v0.5.0 is released.
+
+  **Shared conventions.**
+  - Code comments follow the user's comment rule: a workaround, or a fact the
+    code cannot show, in one line.
+  - Scripts are POSIX sh, except `scripts/improvements.mjs` (node 18 or
+    later, built-in modules only). Tests live in `tests/` and run from
+    `tests/run.sh`.
+  - Paths the plugin prints or documents use the new layout (`rpir/…`,
+    `<change>/.local/…`) from M4 on. M2 and M3 write against the layout they
+    find, and M4 moves every reference.
+  - The project config template is `templates/kentra-rpir.yaml` until M4
+    renames it to `templates/config.yaml`.
+  - Nothing outside the change's worktrees is edited: not the user's home
+    registries, not this repository's own `.kentra-rpir/`, not other
+    projects. Tests use temporary `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and
+    scratch projects.
+
+  **Versioning.** M2 sets `version` in `.claude-plugin/plugin.json` to
+  `0.7.0`; later kentra-rpir milestones leave it. M1 sets milestoned-plan-dag's
+  plugin version to 0.5.0; the tag is an after-merge step.
+
+  **Requirement map** (spec requirement → milestone):
+  - 1–11, 34 (version) → M2
+  - 12–17, 28 (first-run questions and the project id) → M4
+  - 18 → M1; its release, pin bump and workspace-repository AGENTS.md line → after merge
+  - 19–21 → M5
+  - 22, 25, 27, 28 (config file and reader), 35 (nudge) → M3
+  - 35 (registry step, improve skills) → M6
+  - 23, 24, 26 → M6
+  - 29 (import command) → M8; the real import → after merge
+  - 30–32 → M7
+  - 33 → M8; 34's marketplace line → after merge
+
+  **After merge** (the user, or the orchestrator when the user asks):
+  1. Tag milestoned-plan-dag `v0.5.0` and push it (P5 publishes the cask).
+  2. In the user's workspace repository, in one commit: the milestoned-plan-dag submodule
+     pointer and its pinned ref move to the tagged
+     commit, and the milestoned-plan-dag
+     entry in `AGENTS.md` says multi-repository plans are supported from
+     v0.5.0.
+  3. In kentra-agentic-plugins: the kentra-rpir entry names milestoned-plan-dag
+     0.5.0 as the minimum.
+  4. Run `scripts/migrate-layout.sh` on kentra-rpir (before its review
+     stage), projects A, B and C.
+  5. Import the eight retros and `docs/retro-backlog.md` (spec requirement
+     29) with `improvements.mjs import`.
+milestones:
+  - number: 1
+    slug: mpd-repo-field
+    goal: "milestoned-plan-dag 0.5.0 plans can name each milestone's repository"
+    description: |
+      Spec requirement 18 and Design "`repo` on each milestone". Works in
+      ../milestoned-plan-dag; check and paths are relative to its worktree
+      root.
+
+      - **Schema 0.5.0.** `schema/plan.schema.json` gains an optional
+        milestone property `repo`: a relative path from the project root,
+        compared after cleaning (`a`, `./a`, `a/` are one), which may start
+        with `../`. An absolute path is an error. `SchemaVersion` becomes
+        0.5.0, and as before only that version is read (spec Design "Pins").
+      - **validate:** a plan where some milestones set `repo` and others do
+        not is an error naming the milestones without it. In a plan that sets
+        `repo`, the overlap warning compares `paths` only between independent
+        milestones of the same cleaned `repo`.
+      - **resolve and render** carry each milestone's `repo` when set.
+      - **plan-author skill** (`skills/plan-author/SKILL.md`, `example.yaml`)
+        documents the field, the all-or-none rule and repository-relative
+        `paths`. README and `spec.md` describe 0.5.0;
+        `.claude-plugin/plugin.json` version 0.5.0.
+
+      Provides: schema 0.5.0 and the `repo` field, used by M5.
+
+      Risks: none on premises. Readers of the version and the overlap check
+      (grep at base): `internal/**`, `testdata/**`, `README.md`, `spec.md`,
+      `.claude-plugin/plugin.json`, `skills/plan-author/**`.
+    deliverables: |
+      schema/plan.schema.json; internal/validate, internal/resolve,
+      internal/render and their tests; testdata plans with and without repo;
+      skills/plan-author/SKILL.md and example.yaml; README.md; spec.md;
+      .claude-plugin/plugin.json.
+    contract:
+      check: "go build ./... && go vet ./... && go test ./..."
+      criteria:
+        - name: "internal/validate/validate_test.go: mixed repo rejected"
+          given: "a 0.5.0 plan where milestone 1 sets repo and milestone 2 does not"
+          when: "validate runs"
+          then: "it fails and names milestone 2"
+        - name: "internal/validate/validate_test.go: overlap per repo"
+          given: "independent milestones with identical paths: one pair in different repos, one pair in `a` and `./a/`"
+          when: "validate runs"
+          then: "only the `a`/`./a/` pair produces the overlap warning"
+        - name: "internal/validate/validate_test.go: absolute repo rejected"
+          then: "a milestone with `repo: /abs/path` is an error"
+        - name: "internal/validate/validate_test.go: single-repo plan unchanged"
+          then: "a 0.5.0 plan without repo produces the same validate output and warnings as the same plan at 0.4.0 did at base"
+        - name: "internal/validate/validate_test.go: 0.4.0 rejected"
+          then: "a 0.4.0 plan is rejected with the unsupported-schemaVersion message"
+        - name: "internal/resolve/resolve_test.go and internal/render/render_test.go: repo shown"
+          then: "resolve's YAML and render's output include each milestone's repo when the plan sets it"
+        - name: "human: plan-author documents repo"
+          then: "the skill and example show the field, the all-or-none rule and repository-relative paths; spec.md and README describe 0.5.0"
+      paths:
+        - schema/**
+        - internal/**
+        - cmd/**
+        - testdata/**
+        - skills/plan-author/**
+        - README.md
+        - spec.md
+        - .claude-plugin/plugin.json
+    rules:
+      - writing-for-agents
+      - milestoned-plan-dag:plan-author
+
+  - number: 2
+    slug: recurring-failures
+    goal: "Plan, research and agent prompts stop the recurring failures from the analysis"
+    description: |
+      Spec requirements 1–11 and 34's version; P3.
+
+      - **First:** fix the two failing `hooks/test/nav.test.ts` tests at base
+        (see the plan's Standard checks), in the test or in the mod code it
+        exercises.
+      - **plan skill:** step 9's baseline copy waits for the diff reviewer's
+        hand-back, and edits made meanwhile get their own diff review (1);
+        step 10 waits for running diff reviews and records an unreviewed
+        approval in writer-gaps, whatever the tracking (2); step 7's
+        readers-in-paths rule (3); step 4's outside-state rule, quoted
+        verbatim from requirement 6, and the `untested:` row rule (6).
+      - **reviewer:** check P2 gains the readers clause (4)
+        (`agents/reviewer.md`, and `skills/plan/reviewer-prompt.md` if it
+        lists the checks).
+      - **research:** the literal queue command, no alias, no variable (7);
+        `research-queue.sh add premise` exits 2 without `critical:` or
+        `normal:`.
+      - **agents:** the waiting rule in implementer, verifier, researcher and
+        spike, worded like lead.md's existing Monitor wait (8); the staging
+        rule in implementer (9); the Facts rule and the clause-to-assertion
+        and no-cached-evidence rule in lead (10).
+      - **implement skill:** a changed criterion is run at the milestone base
+        before resuming (5); impl-report copies each lead's final CONCERNS
+        and OBSERVED lines verbatim (11), in the skill and
+        `templates/impl-report.md`.
+      - Plugin version 0.7.0.
+
+      Provides: nothing later milestones call; M4 to M7 edit the same skill
+      files after it.
+
+      Risks: prose rules can be ignored (analysis T5); the verifier's "not
+      something weaker" stays the backstop. Readers of the queue's argument
+      parsing (grep at base): `tests/research-queue.test.sh`,
+      `skills/research/SKILL.md`.
+    deliverables: |
+      hooks/test/nav.test.ts (and hooks/nav.ts if the fix is there);
+      skills/plan/SKILL.md, skills/plan/reviewer-prompt.md, agents/reviewer.md,
+      skills/research/SKILL.md, scripts/research-queue.sh,
+      tests/research-queue.test.sh, agents/implementer.md, agents/verifier.md,
+      agents/researcher.md, agents/spike.md, agents/lead.md,
+      skills/implement/SKILL.md, templates/impl-report.md,
+      .claude-plugin/plugin.json.
+    contract:
+      check: "command -v claude >/dev/null && sh tests/run.sh"
+      criteria:
+        - name: "hooks/test/nav.test.ts"
+          then: "'ui.scroll routing' and 'ui.focus routing' pass, and the whole check exits 0"
+        - name: tests/research-queue.test.sh
+          given: "an empty queue"
+          when: "add premise is called with a question lacking a critical:/normal: prefix, then with each prefix"
+          then: "the first exits 2 and queues nothing; the prefixed ones are queued"
+        - name: "tests/check-templates.sh: version"
+          then: "fails when .claude-plugin/plugin.json's version is below 0.7.0 (semver); passes at 0.7.0 and 0.7.1"
+        - name: "human: plan skill rules"
+          then: "steps 4, 7, 9 and 10 state requirements 1, 2, 3 and 6 (6 verbatim), and reviewer P2 states requirement 4"
+        - name: "human: agent rules"
+          then: "implementer, verifier, researcher and spike carry the waiting rule; implementer the staging rule; lead the Facts and evidence rules; the research skill a literal command line"
+        - name: "human: implement rules"
+          then: "plan adjustments run a changed criterion at the base before resuming; the impl report copies CONCERNS and OBSERVED verbatim"
+      paths:
+        - hooks/nav.ts
+        - hooks/register.tsx
+        - hooks/layout.ts
+        - hooks/vendor/**
+        - hooks/test/nav.test.ts
+        - skills/plan/**
+        - skills/research/**
+        - skills/implement/**
+        - agents/reviewer.md
+        - agents/implementer.md
+        - agents/verifier.md
+        - agents/researcher.md
+        - agents/spike.md
+        - agents/lead.md
+        - scripts/research-queue.sh
+        - tests/research-queue.test.sh
+        - tests/check-templates.sh
+        - templates/impl-report.md
+        - .claude-plugin/plugin.json
+    rules:
+      - writing-for-agents
+
+  - number: 3
+    slug: improvements-core
+    goal: "Finding-class registries with a tested score, a user config and a SessionStart nudge"
+    description: |
+      Spec requirements 22, 25, 27, 28 (the config file and its reader) and
+      35; Abstractions (finding class, occurrence, decision, the
+      `improvements.mjs` CLI, registry state, user config); Design "Score",
+      "Re-proposal after a rejection", "The registry is JSON", "The
+      SessionStart command hook", "Pins".
+
+      - **`scripts/improvements.mjs`**, the only writer of registry files,
+        with the CLI in Abstractions. Registry paths: plugin
+        `${XDG_DATA_HOME:-~/.local/share}/kentra-rpir/improvements/`, project
+        `<root>/rpir/improvements/`. Occurrences keyed by project id, change
+        and `findingId`; recording a change first removes that project and
+        change's earlier occurrences in the scope; `shipped[]` appended;
+        regression against the newest shipped version; semver comparison.
+        `import` takes `--project-id`.
+      - **User config** `${XDG_CONFIG_HOME:-~/.config}/kentra-rpir/config.yaml`
+        with the keys in Abstractions; `templates/user-config.yaml`. The
+        script reads only the flat keys it needs, with no YAML library.
+      - **Nudge:** `hooks/nudge.sh` exits 0 printing nothing when node is
+        missing or anything fails, and otherwise prints what
+        `improvements.mjs nudge` prints. `hooks/hooks.json` keeps `"modules"`
+        and adds the SessionStart command hook with matcher `startup|resume`
+        (P1). The line asks the model to relay it.
+
+      Provides: the `improvements.mjs` CLI and class JSON shape (M6, M8); the
+      user config template and its flat-key reader (M4 first-run, M7 audit
+      keys).
+
+      Risks: P1's untested parts (installed plugin, resume, TUI visibility):
+      checked once by hand.
+    deliverables: |
+      scripts/improvements.mjs; tests/improvements.test.mjs; hooks/nudge.sh;
+      hooks/hooks.json; tests/nudge.test.sh; templates/user-config.yaml;
+      tests/run.sh runs the new tests.
+    contract:
+      check: "command -v claude >/dev/null && sh tests/run.sh"
+      criteria:
+        - name: "tests/improvements.test.mjs: score"
+          given: "a class with occurrences of known count, wall minutes, interventions, severity and age, and complexity M"
+          when: "list runs"
+          then: "impact and priority equal the Design formula's values"
+        - name: "tests/improvements.test.mjs: regressed"
+          then: "a class shipped in 0.9.0 with an occurrence on 0.10.0 is regressed with doubled priority; an occurrence on 0.9.0 does not regress it"
+        - name: "tests/improvements.test.mjs: re-proposal"
+          given: "a class rejected twice, then given new occurrences below, exactly at and above half its impact at the last rejection, and separately one high-severity occurrence"
+          when: "list runs after each"
+          then: "it is ineligible below the threshold and eligible at it, above it or after the high-severity one, and both rejection reasons are listed"
+        - name: "tests/improvements.test.mjs: record key"
+          then: "recording the same project id, change and findingId twice leaves one occurrence, even with a different findingRef path; the same change name in two projects gives two"
+        - name: "tests/improvements.test.mjs: re-run replaces"
+          then: "recording F1 and F2 of a change in one call leaves both; re-recording the change with F1 only removes its earlier F2 occurrence, including one held by another class"
+        - name: "tests/improvements.test.mjs: old change re-recorded"
+          then: "re-recording an old change's occurrences with their own date and pluginVersion under a newer installed plugin neither regresses a shipped class nor re-qualifies a rejected one"
+        - name: tests/nudge.test.sh
+          given: "a temporary XDG_DATA_HOME and XDG_CONFIG_HOME and a project, nudge.days 3, nudge.minFindings 5"
+          when: "the hook runs with 4 then 5 new occurrences, twice in a row, after lastNudge moves 3 days back, after an improve run, with no user config, with plugin.nudge false, without node on PATH, and on a missing registry"
+          then: "no line at 4; one project line at 5; nothing on the immediate repeat; a line again after 3 days; nothing after the improve run resets the count; the project line prints with no user config; no plugin line while plugin.nudge is false; exit 0 and no output without node or registry"
+        - name: "tests/nudge.test.sh: hooks.json"
+          then: "hooks/hooks.json keeps modules and has a SessionStart hook with matcher startup|resume"
+        - name: "human: nudge seen"
+          then: "in an interactive session of the installed plugin, the nudge line reaches the user directly or relayed by the model, on startup and on resume"
+      paths:
+        - scripts/improvements.mjs
+        - tests/improvements.test.mjs
+        - hooks/nudge.sh
+        - hooks/hooks.json
+        - tests/nudge.test.sh
+        - templates/user-config.yaml
+        - tests/run.sh
+
+  - number: 4
+    slug: rpir-layout
+    goal: "All kentra-rpir files live under rpir/, local state per change, parallel implementations, untracked mode"
+    description: |
+      Spec requirements 12–17 and 28's first-run questions; Layout; Design
+      "One rpir/ root".
+
+      - **Config:** `rpir/config.yaml`. Rename the template to
+        `templates/config.yaml`; it drops `changesDir`, `research.dir` and
+        `research.index`, and adds `track` (default true) and
+        `roles.review-orchestrator` (default opus). Plan setup adds
+        `rpir/**/.local/` to `.gitignore` always, and `/rpir/` when `track`
+        is false.
+      - **Local state:** `<change>/.local/{sessions, reviewed/,
+        research-queue.tsv, implement-state.json, spikes/}`; standalone
+        research in `rpir/research/.local/`. `sessions.sh`,
+        `planning-log.sh`, `research-queue.sh`, `commit-change.sh` and the
+        retro workflow read and write there. "Newest change" is the newest
+        `.local/sessions`.
+      - **Implement state per change**, deleted at the end; unfinished ones
+        listed at start (15).
+      - **Untracked mode** (16) in plan, implement and review.
+      - **Old layout:** every stage stops and names
+        `scripts/migrate-layout.sh` (17). The script handles every case in
+        requirement 17 and is idempotent. It is not run on this repository
+        (after-merge step 4).
+      - **First run:** every stage, when the user config is missing, asks
+        requirement 28's questions in one message and writes it from M3's
+        template; when `rpir/config.yaml` has no `project:`, it writes the
+        stable project id.
+      - **The milestone-graph pane** (`hooks/plan.ts`, `hooks/register.tsx`)
+        finds change folders and implement state in the new places.
+      - The demo fixture and every test move to the new layout.
+
+      Uses: M3's user config template. Provides (M5–M7):
+      `templates/config.yaml`, the `<change>/.local/` paths, untracked mode.
+
+      Readers of the old paths (grep at base): `.gitignore`,
+      `hooks/plan.ts`, `hooks/register.tsx`,
+      `hooks/test/{nav,plan,tracker}.test.ts`, `hooks/test/wiring.test.tsx`,
+      `scripts/{commit-change,research-queue,sessions,planning-log}.sh`,
+      `skills/{implement,plan,research,review}/SKILL.md`,
+      `templates/impl-report.md`, `templates/kentra-rpir.yaml`,
+      `tests/{demo,planning-log,research-queue,sessions,commit-change}.test.sh`,
+      `tests/check-templates.sh`, `tests/demo/fixture/**`,
+      `workflows/spec-retro.js`. `README.md` is left to M8. This
+      repository's own `.kentra-rpir.yaml` and `docs/changes/` stay as they
+      are.
+
+      Risks: the pane tests run only with `claude` on PATH (the check
+      requires it).
+    deliverables: |
+      templates/config.yaml (renamed); scripts/migrate-layout.sh and
+      tests/migrate-layout.test.sh; updated scripts, skills, hooks, workflow,
+      tests and demo fixture.
+    contract:
+      check: "command -v claude >/dev/null && sh tests/run.sh"
+      criteria:
+        - name: "tests/migrate-layout.test.sh: docs/changes project"
+          given: "a scratch git project with .kentra-rpir.yaml (changesDir docs/changes), a change folder, a research index and .kentra-rpir/{sessions.map, reviewed/<change>, research-queue/<session>.tsv, implement-state.<change>.json}"
+          when: "migrate-layout.sh runs, then runs again"
+          then: "every file is under rpir/ as in the spec's Layout, sessions are split per change, the old files are gone, .gitignore holds rpir/**/.local/ and not /rpir/, and the second run changes nothing"
+        - name: "tests/migrate-layout.test.sh: ignored rpir/changes project"
+          given: "a scratch project with changesDir rpir/changes and /rpir/ and .kentra-rpir.yaml in .gitignore"
+          when: "migrate-layout.sh runs"
+          then: "files move in place, rpir/config.yaml has track: false, and .gitignore holds /rpir/ and rpir/**/.local/"
+        - name: "tests/migrate-layout.test.sh: partly migrated"
+          then: "a project with rpir/config.yaml and a leftover .kentra-rpir/ has the leftover state moved into the changes' .local/ folders"
+        - name: "tests/migrate-layout.test.sh: symlinked old paths"
+          then: "docs/changes and docs/research symlinked into rpir/ are removed, and no change folder is duplicated"
+        - name: "tests/migrate-layout.test.sh: project id"
+          then: "the migrated rpir/config.yaml holds project: <directory name>, and a second run keeps an edited id"
+        - name: tests/sessions.test.sh
+          then: "list reads <change>/.local/sessions, and the newest-change lookup picks the newest sessions file"
+        - name: tests/research-queue.test.sh
+          then: "queues live in <change>/.local/research-queue.tsv, or rpir/research/.local/ outside a change"
+        - name: tests/commit-change.test.sh
+          then: "in a project whose rpir/ is gitignored, and in one whose root is not a git repo, the script commits nothing, prints one line saying so and exits 0"
+        - name: "hooks/test/plan.test.ts and hooks/test/wiring.test.tsx: new layout"
+          then: "the pane finds change folders under rpir/changes and implement state in <change>/.local/"
+        - name: "human: stages"
+          then: "plan, implement, review and research use the new paths, stop on the old layout naming the script, list unfinished implementations, delete the state at the end, follow untracked mode, ask the first-run questions, and write project: to rpir/config.yaml when it is missing, leaving an existing one unchanged"
+      paths:
+        - .gitignore
+        - templates/**
+        - scripts/**
+        - skills/**
+        - hooks/plan.ts
+        - hooks/register.tsx
+        - hooks/test/**
+        - workflows/spec-retro.js
+        - tests/**
+    depends-on: [recurring-failures, improvements-core]
+    rules:
+      - writing-for-agents
+
+  - number: 5
+    slug: multi-repo
+    goal: "Plan, implement, review and retro handle plans that span several repositories"
+    description: |
+      Spec requirements 19–21; P4; Design "`repo` on each milestone". Uses
+      M1's schema 0.5.0 through `MILESTONED_PLAN_DAG`.
+
+      - **plan:** writes `schemaVersion: 0.5.0`; sets `repo` on every
+        milestone of a multi-repository change; the reviewer runs P2 and P11
+        in each milestone's repository; 0.5.0 is the named minimum.
+      - **implement:** integration worktree per touched repository
+        (`<repo>/<worktreesDir>/<slug>`, branch `<branchPrefix><slug>`, from
+        its current branch; `.git/info/exclude` when the repository does not
+        ignore the worktrees dir); milestone worktrees from, and merges into,
+        their repository's integration branch; the check per repository; the
+        state file records worktrees per repository; impl-report gets a table
+        per repository and a merge order from the DAG; a pull request per
+        repository. The lead and verifier prompts carry the repository.
+      - **review and retro:** a diff per repository; each milestone's
+        `diffRange` in its repository.
+      - `tests/fixtures/coarse-plan.yaml` moves to 0.5.0, and a multi-repo
+        fixture is added and validated by `tests/run.sh`.
+      - The pane shows each milestone's repository.
+
+      Uses: M1's `repo`; M4's `.local/` paths and untracked mode. Provides
+      (M7): per-repository integration worktrees with their base and head in
+      the state file.
+
+      Risks: P4. Readers of `schemaVersion` and `0.4.0` (grep at base):
+      `skills/plan/SKILL.md`, `skills/implement/SKILL.md`,
+      `tests/fixtures/coarse-plan.yaml`, `tests/run.sh`,
+      `hooks/test/{nav,plan}.test.ts`, `hooks/test/wiring.test.tsx`,
+      `README.md` (M8).
+    deliverables: |
+      skills/plan, skills/implement (with the lead and verifier prompts),
+      skills/review, agents/reviewer.md, agents/lead.md, agents/verifier.md,
+      workflows/spec-retro.js, templates/impl-report.md,
+      tests/fixtures/coarse-plan.yaml, tests/fixtures/multi-repo-plan.yaml,
+      tests/run.sh, hooks/plan.ts, hooks/layout.ts, hooks/register.tsx and the
+      hooks tests.
+    contract:
+      check: "command -v claude >/dev/null && sh tests/run.sh"
+      criteria:
+        - name: "tests/run.sh: fixtures"
+          then: "the 0.5.0 coarse-plan fixture and the multi-repo fixture (three milestones in two repositories) validate with the M1 binary"
+        - name: "tests/check-workflows.mjs: per-repo diffRange"
+          then: "the spec-retro workflow fixture with milestones in two repositories gives each reader its own repository's diffRange"
+        - name: "hooks/test/plan.test.ts and hooks/test/wiring.test.tsx: repo"
+          then: "the pane shows a multi-repo plan's milestones with their repository"
+        - name: "human: plan multi-repo"
+          then: "the plan skill writes schemaVersion 0.5.0, sets repo on every milestone of a multi-repo change and names 0.5.0 as the minimum; the reviewer runs P2 and P11 per repository; review presents one diff per repository"
+        - name: "human: implement multi-repo"
+          then: "the implement skill states per-repository integration worktrees, milestone branches and merges, checks, state, report tables, merge order and pull requests"
+      paths:
+        - skills/**
+        - agents/reviewer.md
+        - agents/lead.md
+        - agents/verifier.md
+        - workflows/spec-retro.js
+        - templates/impl-report.md
+        - tests/**
+        - hooks/plan.ts
+        - hooks/layout.ts
+        - hooks/register.tsx
+        - hooks/test/**
+    depends-on: [mpd-repo-field, rpir-layout]
+    rules:
+      - writing-for-agents
+      - milestoned-plan-dag:plan-author
+
+  - number: 6
+    slug: retro-registry
+    goal: "The retro records findings into the registries; improve and improve-plugin rank and decide them"
+    description: |
+      Spec requirements 23, 24, 26 and 35 (registry step, improve skills);
+      Design "Retro, review and improvement
+      are separate steps", "Scopes and where they live".
+
+      - **spec-retro workflow:** after writing `spec-retro.md`, a stage labels
+        each finding `plugin` or `project`, matches it to a class in that
+        scope (reading `improvements.mjs list`), and records an occurrence
+        with count, wall minutes, tokens, user interventions and severity
+        through one `improvements.mjs record` call per scope, carrying the
+        change's own date and plugin version. Plugin findings are recorded only
+        when `plugin.record` is true (passed in as an arg). The per-finding
+        Actions table and its remediation prompt go; the template follows.
+      - **review skill:** no action walk-through, no `gh issue create`; one
+        summary line when the retro finishes (findings per scope, regressed
+        classes); done when the code review is done and `status: done` is set.
+      - **`skills/improve`** (project registry) and **`skills/improve-plugin`**
+        (plugin registry, at `plugin.source`): up to five proposals from
+        `list`, each with counts, accumulated metrics, complexity, earlier
+        rejections with reasons and occurrences since the last; the decision
+        through `decide`; accepted ones carried out (improve: the project's own
+        files; improve-plugin: the plugin source with a version bump, then
+        `ship`).
+
+      - **Without node** (requirement 35), the registry step and both
+        improve skills stop with one line naming the node 18 requirement.
+
+      Uses: M3's CLI; M4's paths and project id; M5's per-repository retro
+      args.
+
+      Risks: matching a finding to an existing class is model judgement; the
+      occurrence key keeps re-runs idempotent.
+    deliverables: |
+      workflows/spec-retro.js, agents/retro.md, templates/spec-retro.md,
+      skills/review/SKILL.md, skills/improve/SKILL.md,
+      skills/improve-plugin/SKILL.md, tests/check-workflows.mjs and
+      tests/workflow-fixtures.mjs.
+    contract:
+      check: "command -v claude >/dev/null && sh tests/run.sh"
+      criteria:
+        - name: "tests/check-workflows.mjs: registry stage"
+          given: "the spec-retro fixture with a stubbed agent returning two findings, one per scope, and args.pluginRecord false, then true"
+          when: "the workflow dry-runs"
+          then: "the registry stage's agent prompt contains `improvements.mjs record --scope project` for the project finding, and a plugin record only when pluginRecord is true; no Actions section is produced"
+        - name: "human: improve skills"
+          then: "both skills propose at most five, show the listed context, record each decision, and carry out accepted ones in their own target"
+        - name: "human: review"
+          then: "review shows one summary line for the retro, no longer walks actions or files issues, and is done when the code review is done and status: done is set"
+        - name: "human: no node"
+          then: "with node off PATH, the retro's registry step and improve and improve-plugin each stop with one line naming node 18"
+      paths:
+        - workflows/spec-retro.js
+        - agents/retro.md
+        - templates/spec-retro.md
+        - skills/review/**
+        - skills/improve/**
+        - skills/improve-plugin/**
+        - tests/check-workflows.mjs
+        - tests/workflow-fixtures.mjs
+        - scripts/improvements.mjs
+        - tests/improvements.test.mjs
+    depends-on: [improvements-core, multi-repo]
+    rules:
+      - writing-for-agents
+
+  - number: 7
+    slug: pluggable-audit
+    goal: "An optional audit skill runs in the background after implement and review applies its findings"
+    description: |
+      Spec requirements 30–32; P2; Abstractions "Audit file"; Design "The
+      audit starts at the end of implement".
+
+      - **Config:** `audit: { skill, args }` in `templates/config.yaml` and
+        `templates/user-config.yaml`; the project key wins; unset means none;
+        `{{worktree}}`, `{{base}}` and `{{head}}` filled per repository.
+      - **implement's last step**, after the report: one background
+        subagent per repository, from `skills/implement/audit-prompt.md`,
+        runs the skill on its integration worktree, writes
+        `<change>/audit/<repo>.md` itself, and keeps
+        `<change>/.local/audit.<repo>.running` while it runs (`<repo>` as
+        spec requirement 31 derives it, with `-2`, `-3` on a clash). A skill it
+        cannot invoke is reported as the file's content.
+      - **review:** checks `roles.review-orchestrator.model`; waits until no
+        `.running` marker is left; judges every finding; by its own judgement
+        of size, applies small ones itself and larger ones through a fresh
+        lead and verifier as user-requested fixes; writes each decision and
+        the size it chose into the audit file; one summary line; a user
+        instruction about a finding overrides.
+
+      Uses: M5's per-repository integration worktrees, base and head; M4's
+      config template and `.local/`; M3's user config.
+
+      Risks: P2's untested parts (a `context: fork` skill, a
+      `disable-model-invocation` skill); the subagent writes the file
+      either way.
+    deliverables: |
+      skills/implement/SKILL.md and skills/implement/audit-prompt.md;
+      skills/review/SKILL.md; templates/config.yaml and
+      templates/user-config.yaml (audit keys); tests/check-templates.sh.
+    contract:
+      check: "command -v claude >/dev/null && sh tests/run.sh"
+      criteria:
+        - name: tests/check-templates.sh
+          then: "fails when the audit keys or roles.review-orchestrator are missing from the config templates, or when audit-prompt.md lacks the worktree, base, head and output-file slots; passes when all are present"
+        - name: "human: audit config"
+          then: "two repositories mapping to one audit name get -2 in plan order; the project audit key overrides the user one; placeholders are filled per repository; review says when it is not on the review-orchestrator model; a skill that cannot be invoked is reported in the audit file"
+        - name: "human: audit flow"
+          then: "with audit set to ponytail:ponytail-audit on a scratch change, implement launches it in the background, audit/<repo>.md is written, and review applies or skips each finding with a reason and size without asking"
+      paths:
+        - skills/implement/**
+        - skills/review/**
+        - templates/config.yaml
+        - templates/user-config.yaml
+        - tests/check-templates.sh
+    depends-on: [retro-registry]
+    rules:
+      - writing-for-agents
+
+  - number: 8
+    slug: docs-release
+    goal: "Docs describe 0.7.0 and the registry import is ready"
+    description: |
+      Spec requirements 29 (the import command) and 33.
+
+      - `docs/process.md` and `README.md` as requirement 33 lists.
+      - `improvements.mjs import` handles the shape of every existing
+        `spec-retro.md` (old Actions tables included) and
+        `docs/retro-backlog.md`, tested on copies in `tests/fixtures/retros/`.
+      - `docs/retro-backlog.md` is deleted once its fixture copy is in
+        place.
+      - `plugin.json`'s description mentions the new skills.
+
+      Uses: M3's CLI.
+
+      Risks: the real import and the migrations are after-merge steps.
+    deliverables: |
+      docs/process.md, README.md, .claude-plugin/plugin.json (description),
+      scripts/improvements.mjs (import), tests/improvements.test.mjs,
+      tests/fixtures/retros/**, docs/retro-backlog.md removed.
+    contract:
+      check: "command -v claude >/dev/null && sh tests/run.sh"
+      criteria:
+        - name: "tests/improvements.test.mjs: import"
+          given: "copies of two spec-retro.md files of different template versions and the retro backlog, and a temporary XDG_DATA_HOME"
+          when: "import runs on each, twice"
+          then: "every finding becomes an occurrence of a plugin or project class, and the second run adds nothing"
+        - name: "tests/check-templates.sh: backlog gone"
+          then: "fails while docs/retro-backlog.md exists"
+        - name: "human: docs"
+          then: "process.md and README describe every area requirement 33 lists and no longer mention changesDir, .kentra-rpir.yaml or the retro action walk-through"
+      paths:
+        - docs/process.md
+        - README.md
+        - docs/retro-backlog.md
+        - .claude-plugin/plugin.json
+        - scripts/improvements.mjs
+        - tests/improvements.test.mjs
+        - tests/check-templates.sh
+        - tests/fixtures/retros/**
+    depends-on: [pluggable-audit]

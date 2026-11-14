@@ -28,13 +28,14 @@ context to hand-backs, verdicts and the state file; the leads and verifiers
 read the code.
 
 **Where things are:**
-- the config is `.kentra-rpir.yaml` (defaults:
-  `${CLAUDE_PLUGIN_ROOT}/templates/kentra-rpir.yaml`);
+- the config is `rpir/config.yaml` (defaults:
+  `${CLAUDE_PLUGIN_ROOT}/templates/config.yaml`);
+- change folders are `rpir/changes/<YYYY-MM-DD-slug>/`;
 - the dispatch prompts are `${CLAUDE_SKILL_DIR}/lead-prompt.md` and
-  `${CLAUDE_SKILL_DIR}/verifier-prompt.md`;
+  `${CLAUDE_SKILL_DIR}/verifier-prompt.md`; the audit prompt is
+  `${CLAUDE_SKILL_DIR}/audit-prompt.md`;
 - the report template is `${CLAUDE_PLUGIN_ROOT}/templates/impl-report.md`;
-- the state file is `.kentra-rpir/implement-state.json` at the project root
-  (see "State file").
+- the state file is `<change>/.local/implement-state.json` (see "State file").
 
 If this session is not running on `roles.impl-orchestrator.model`, tell the
 user before starting and let them choose to continue or switch models.
@@ -46,36 +47,60 @@ worktree's absolute path instead.
 
 ## 1. Start
 
-1. **Find the change:** the folder the user names, else the newest entry for
-   this project in `.kentra-rpir/sessions.map`, else the newest folder under
-   `changesDir`. Confirm your choice with the user. Its spec should say
-   `status: planned`.
-2. **Read the spec's `tier`.** A spec whose `tier` is `full` or `light`
+1. **Stage start.** Run
+   `sh "${CLAUDE_PLUGIN_ROOT}/scripts/stage-start.sh" "<project root>"`. On exit 3,
+   stop and relay its line. On `user-config: missing`, follow the
+   instructions it prints (the user's questions, in one message) before going
+   on. Remember its `mode:` line: on `mode: untracked`, skip every commit of
+   the change folder and say so in one line.
+2. **Find the change:** the folder the user names, else
+   `sh "${CLAUDE_PLUGIN_ROOT}/scripts/sessions.sh" current --project <project root> --session "${CLAUDE_SESSION_ID}"`
+   (the session's own change, else the newest by sessions file). Confirm
+   your choice with the user. Its spec should say `status: planned`.
+3. **Read the spec's `tier`.** A spec whose `tier` is `full` or `light`
    belongs to a change started under kentra-rpir 0.5.x, which finishes on
    0.5.x. Stop and tell the user so.
-3. **Load the milestones.**
+4. **Load the milestones.**
    - **`standard`:** run `milestoned-plan-dag --version`, then
      `milestoned-plan-dag validate <plan>` and
      `milestoned-plan-dag resolve <plan>`. The resolve output is your
      milestone list and order. When the tool is missing, or `validate`
-     rejects `schemaVersion: 0.4.0`, stop and tell the user:
-     `kentra-rpir needs milestoned-plan-dag 0.4.0 or later: brew upgrade kentra-io/tap/milestoned-plan-dag`.
-   - **`small`:** there is no `plan.yaml`. When the state file (step 4)
+     rejects `schemaVersion: 0.5.0`, stop and tell the user:
+     `kentra-rpir needs milestoned-plan-dag 0.5.0 or later: brew upgrade kentra-io/tap/milestoned-plan-dag`.
+   - **`small`:** there is no `plan.yaml`. When the state file (step 5)
      names this change, take milestone 1's `contract` from it. Otherwise
      build one milestone from the spec, as "Small tier" below says, and
      confirm its contract with the user before dispatching.
-4. **State file.** When `.kentra-rpir/implement-state.json` exists and names
-   this change, this is a resumed run: go to "After a resume or compaction".
-   When it names another change, ask the user before replacing it.
-   Otherwise create it.
-5. **Integration worktree**, from the current branch:
-   `git worktree add <worktreesDir>/<slug> -b <branchPrefix><slug>`.
-6. **Register this session** to the change folder:
-   `mkdir -p .kentra-rpir && echo "${CLAUDE_SESSION_ID} <change folder> implement" >> .kentra-rpir/sessions.map`.
-7. In the integration worktree:
-   - set the spec's `status: implementing`;
-   - commit;
-   - run the check once, so you know the baseline is green.
+5. **State file.** List every other unfinished implementation: each
+   `rpir/changes/*/.local/implement-state.json`, with its phase and last
+   update time (the file's mtime), and tell the user. When this change's own
+   state file exists, this is a resumed run: go to "After a resume or
+   compaction". Otherwise create it.
+6. **Repositories and integration worktrees.** The repositories are the
+   distinct cleaned `repo` values of the resolved plan; `<R>` is
+   `<project root>/<repo>`. A plan without `repo` (every small-tier change) has
+   the one repository `.`. In each repository, from its current branch:
+   `git -C <R> worktree add <R>/<worktreesDir>/<slug> -b <branchPrefix><slug>`.
+   When `git -C <R> check-ignore -q <worktreesDir>` fails, first append
+   `<worktreesDir>/` to `$(git -C <R> rev-parse --git-common-dir)/info/exclude`.
+   Record each repository's `repos` entry in the state file, with `base` the
+   sha the branch was cut from.
+
+   The change folder lives in the project root. When the project root is a git
+   repository it is always among the repositories, with its integration
+   worktree, even if no milestone has `repo: .`. When it is not (a workspace
+   folder), commit nothing of the change folder: work as in untracked mode, and
+   give leads and verifiers the absolute paths of the spec and plan there.
+7. **Register this session** to the change folder:
+   `mkdir -p <change>/.local && echo "${CLAUDE_SESSION_ID} implement" >> <change>/.local/sessions`.
+8. Set the spec's `status: implementing` in the project root's integration
+   worktree and commit; in untracked mode, edit the main checkout's spec
+   instead, uncommitted.
+9. In each repository's integration worktree, run the check its milestones'
+   contracts name once, so you know the baseline is green.
+
+In untracked mode the worktrees hold no `rpir/`: give every lead and
+verifier the absolute path of the spec (and plan) in the main checkout.
 
 Keep a running log for `impl-report.md`: dispatches, lead rounds, verify
 rounds, FAILs, concerns, the leads' decisions, adjustments and conflicts.
@@ -112,14 +137,19 @@ For every milestone whose dependencies are all merged and which is not yet
 started, while fewer than `implement.maxParallel` milestones are in
 progress (a lead dispatched, not yet merged or settled as blocked):
 
-1. Create its worktree **from the integration branch's current head**:
-   `git worktree add <worktreesDir>/<slug>--m<n>-<mslug> -b <branchPrefix><slug>--m<n> <branchPrefix><slug>`.
+1. Create its worktree **from its repository's integration branch head**:
+   `git -C <R> worktree add <R>/<worktreesDir>/<slug>--m<n>-<mslug> -b <branchPrefix><slug>--m<n> <branchPrefix><slug>`.
    Record that head as the milestone's `base`.
 2. Fill `lead-prompt.md`:
    - `title` is `spec.md`'s title;
    - `worktree` is the milestone worktree's absolute path; `branch` and
      `base` as created in step 1;
-   - `spec` is the absolute path of `spec.md` inside the milestone worktree;
+   - `repo` is one line: the milestone's repository `<R>` (absolute path, and
+     its `repo` value; for a single-repository plan, the project root), that
+     the milestone's `paths` and `check` are relative to it, and that the lead
+     writes only there;
+   - `spec` is the absolute path of `spec.md` inside the milestone worktree
+     (in untracked mode, in the main checkout);
    - `implementer_agent` and `implementer_model` are
      `roles.implementer.agent` and `roles.implementer.model`;
    - `plan_description` is the plan's `description`;
@@ -172,8 +202,9 @@ lead. Send it the milestone, never the lead's report.
   - `subagent_type`: `roles.verifier.agent`, `model`: `roles.verifier.model`;
   - `description` and `prompt`: as "Dispatch prompts" below says, with
     `verifier-prompt.md` filled: `title` = `spec.md`'s title, `branch` =
-    the milestone branch, `base` = the milestone's `base`, and every other
-    slot as in the lead's prompt.
+    the milestone branch, `base` = the milestone's `base`, `repo` as in the
+    lead's prompt (the verifier writes only there), and every other slot as
+    in the lead's prompt.
 - **Re-verification after a fix:** take the verifier's `handedBackAt` from
   the state file and compare it with `date +%s`.
   - **Within `implement.cacheWindowMinutes`:** count it in
@@ -196,16 +227,17 @@ Record each verifier's agent id, and its hand-back time when it reports.
 
 On PASS:
 
-1. Merge in the integration worktree:
-   `git -C <worktreesDir>/<slug> merge --no-ff <milestone branch> -m "Merge M<n> <mslug>"`.
+1. Merge in the milestone's repository's integration worktree (`<I>`):
+   `git -C <I> merge --no-ff <milestone branch> -m "Merge M<n> <mslug>"`.
 2. Resolve any conflict yourself. Both sides' intent is in the two milestones;
    keep both, and record the resolution.
-3. Run the check in the integration worktree. If it fails, the merge broke
+3. Set the repository's `head` in the state file to `git -C <I> rev-parse HEAD`.
+   Run the milestone's check in `<I>`. If it fails, the merge broke
    something: fix it on the integration branch, or resume the milestone's
    lead with the failure.
 4. Clean up:
-   `git worktree remove <milestone worktree>` and
-   `git -C <worktreesDir>/<slug> branch -d <milestone branch>`. `branch -d`
+   `git -C <R> worktree remove <milestone worktree>` and
+   `git -C <I> branch -d <milestone branch>`. `branch -d`
    checks the merge against the current worktree's HEAD, which must be the
    integration branch.
 5. Mark the milestone merged in the state file. Its lead and verifier are
@@ -215,20 +247,29 @@ On PASS:
 
 ## State file
 
-`.kentra-rpir/implement-state.json` records what you need to pick the run up
+`<change>/.local/implement-state.json` records what you need to pick the run up
 again. Rewrite it whole with the Write tool on every dispatch, hand-back,
 phase change and merge, before acting on the hand-back:
 
 ```json
 {
-  "change": "docs/changes/2026-11-05-example",
-  "integration": "/abs/project/.worktrees/2026-11-05-example",
+  "change": "rpir/changes/2026-11-05-example",
+  "repos": {
+    ".": {
+      "path": "/abs/project",
+      "integration": "/abs/project/.worktrees/2026-11-05-example",
+      "branch": "rpir/2026-11-05-example",
+      "base": "<sha the integration branch was cut from>",
+      "head": "<integration head after the last merge>"
+    }
+  },
   "milestones": {
     "2": {
       "slug": "store",
+      "repo": ".",
       "worktree": "/abs/project/.worktrees/2026-11-05-example--m2-store",
       "branch": "rpir/2026-11-05-example--m2",
-      "base": "<integration sha the milestone branched from>",
+      "base": "<repository integration sha the milestone branched from>",
       "phase": "lead | waiting | verify | merged | blocked",
       "lead": { "id": "<agent id>", "handedBackAt": 1762340000 },
       "verifier": { "id": "<agent id>", "handedBackAt": null },
@@ -249,7 +290,7 @@ round (step 3); `verifyRounds` every verification, of which
 ### After a resume or compaction
 
 Re-read the state file before anything else, and `git -C <integration> log
---oneline` for the merges. A small-tier milestone's prompts come from its
+--oneline` for the merges, per repository in `repos`. A small-tier milestone's prompts come from its
 recorded `contract`. Then, per milestone that is not merged:
 
 - an agent recorded as running: wait for its notification. When none
@@ -310,8 +351,14 @@ answer what it cannot, and you never let it deviate silently.
 **Plan adjustments:**
 
 1. Edit `plan.yaml` on the integration branch.
-2. Validate it and commit it, with the reason in the commit message.
-3. Log the adjustment.
+2. Validate it and commit it, with the reason in the commit message. In
+   untracked mode, skip the commit; the report records the adjustment as a
+   diff against `<change>/.local/reviewed/plan.yaml`.
+3. Run a new or changed criterion command at the milestone's base, as
+   reviewer P11 does (against the files it reads there, or one file you
+   write when they do not exist yet): it prints what the criterion says and
+   fails on one bad line you write. Do this before you resume the milestone.
+4. Log the adjustment.
 
 Anything that would change `spec.md` goes to the user.
 
@@ -325,26 +372,56 @@ When every milestone is merged, or blocked and settled with the user:
    the user's answer as `guidance` in a new milestone worktree from the
    integration head (step 2.1), verify it (step 4) and integrate it
    (step 5) before finishing.
-2. Write `impl-report.md` in the change folder in the integration worktree,
-   from the template, your log and the state file. Report what happened,
-   including FAILs, concerns and the leads' decisions. The retro checks
+2. Write `impl-report.md` in the change folder (in the project root's
+   integration worktree; in place when the project root is not a git
+   repository), from the template, your log and the state file (its `repos` fill the
+   Repositories table). Report what happened,
+   including FAILs, concerns and the leads' decisions. Copy each lead's final
+   CONCERNS and OBSERVED lines verbatim. The retro checks
    every claim in it against the transcripts.
 3. Set the spec's `status: in-review`.
-4. Commit the change folder on the integration branch.
+4. Commit the change folder on the integration branch (in untracked mode,
+   edit the main checkout's spec instead, uncommitted, and skip the commit).
 5. When `implement.push` is true, push:
-   `git -C <worktreesDir>/<slug> push -u origin <branchPrefix><slug>`.
-   Otherwise tell the user the branch is ready to push, and push only when
-   they ask.
-6. When the branch is pushed, `implement.openPullRequest` is true, the
-   remote is GitHub, and `gh auth status` succeeds: open a pull request whose body links the spec,
-   the plan and `impl-report.md`.
-7. Delete `.kentra-rpir/implement-state.json`.
+   `git -C <I> push -u origin <branchPrefix><slug>` for each repository's
+   integration worktree `<I>`. Otherwise tell the user the branches are ready
+   to push, and push only when they ask.
+6. For each repository whose branch is pushed, when `implement.openPullRequest`
+   is true, its remote is GitHub, and `gh auth status` succeeds: open a pull
+   request whose body links the spec, the plan and `impl-report.md`. With
+   several repositories, the body also links the other pull requests and
+   states the report's merge order.
+7. **Audit.** The audit config is `audit` in `rpir/config.yaml`, else in the
+   user config `${XDG_CONFIG_HOME:-~/.config}/kentra-rpir/config.yaml`; the
+   project key wins. An empty or missing `audit.skill` means no audit: skip
+   this step. Otherwise launch one audit per `repos` entry whose `base`
+   differs from its `head`:
+   - Its name `<repo>` is the project id (`project:` in `rpir/config.yaml`)
+     for `.` or for a change with a single repository; otherwise the cleaned
+     `repo` path (`./a` and `a/` are `a`) with leading `../` segments dropped and `/` replaced by `-`. When
+     two repositories map to one name, append `-2`, `-3` in plan order (the
+     order in which the repositories first appear in plan.yaml's milestones).
+   - Fill `audit.args`' `{{worktree}}`, `{{base}}` and `{{head}}` with that
+     repository's integration worktree, base and head, then fill
+     `audit-prompt.md`'s slots. `auditFile` is `<change>/audit/<repo>.md` in
+     the change folder holding `impl-report.md` (absolute). `marker` is
+     `<main root>/<change>/.local/audit.<repo>.running` (absolute; `.local/`
+     lives in the main checkout).
+   - `touch` every marker before dispatching any audit.
+   - Dispatch every audit in one message: Agent tool,
+     `run_in_background: true`, `subagent_type: general-purpose`,
+     `model: opus`, `description: audit <repo>`, prompt = the filled template.
+   - Leave the audit files uncommitted: review commits them with the change
+     folder.
+8. Delete this change's `<change>/.local/implement-state.json`.
 
 The stage is done when the integration branch has `impl-report.md`, pushed
 when `implement.push` is true, and the spec says `status: in-review`. Leave
 the integration worktree in place. Then end with one line:
 
 `Implemented on <branch> in <worktreesDir>/<slug>: <change folder>/impl-report.md[, <PR url>]. Next: /kentra-rpir:review.`
+(with several repositories, name each repository's branch and worktree.)
+When audits launched, add `Audit running: <names>.`
 
 ## Red flags
 
@@ -361,4 +438,5 @@ the integration worktree in place. Then end with one line:
 | "I lost track after the compaction; I'll start over" | The state file holds every agent id and hand-back time. Re-read it. |
 | "The spec is slightly wrong; I'll fix it in the plan" | Anything that changes the spec goes to the user. |
 | "I'll leave the FAIL out of the report" | The retro reads the transcripts. Report it. |
+| "I'll wait for the audit before ending" | It runs in the background; review waits for its markers. |
 | "The prompt is long; I'll send just the path to its file" | The Agent prompt starts with the template's first line and `Work only in` paragraph; the path follows them. |

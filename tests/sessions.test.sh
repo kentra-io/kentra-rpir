@@ -46,13 +46,13 @@ rc3=$?
 check "transcript exits 1 for a missing transcript" test "$rc3" -eq 1
 checkeq "transcript prints nothing for a missing transcript" "$out3" ""
 
-# --- list subcommand: map parsing ---------------------------------------
+# --- list subcommand: sessions file parsing ----------------------------
 
 proj2="$root/project2"
-mkdir -p "$proj2/.kentra-rpir"
-change=docs/changes/2026-10-11-demo
-change2=docs/changes/2026-10-11-demo2
-map="$proj2/.kentra-rpir/sessions.map"
+change=rpir/changes/2026-10-11-demo
+change2=rpir/changes/2026-10-11-demo2
+mkdir -p "$proj2/$change/.local" "$proj2/$change2/.local"
+map="$proj2/$change/.local/sessions"
 
 # A session registered for plan then implement lists once, joined as
 # "plan+implement", with a real transcript resolved.
@@ -60,67 +60,61 @@ sidA=aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
 slug2=$(printf '%s' "$proj2" | sed 's/[^A-Za-z0-9]/-/g')
 mkdir -p "$CLAUDE_CONFIG_DIR/projects/$slug2"
 printf 'a\n' > "$CLAUDE_CONFIG_DIR/projects/$slug2/$sidA.jsonl"
-printf '%s %s plan\n' "$sidA" "$change" >> "$map"
-printf '%s %s implement\n' "$sidA" "$change" >> "$map"
+printf '%s plan\n' "$sidA" >> "$map"
+printf '%s implement\n' "$sidA" >> "$map"
 
-# Only the given change's sessions are listed.
+# Another change's sessions file is not read.
 sidB=bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
-printf '%s %s spec\n' "$sidB" "$change2" >> "$map"
+printf '%s spec\n' "$sidB" > "$proj2/$change2/.local/sessions"
 
 # CRLF tolerated, runs of whitespace between fields.
 sidC=cccccccc-cccc-cccc-cccc-cccccccccccc
-printf '%s\r\n' "$sidC    $change     review" >> "$map"
-
-# A line with no change field is ignored (standalone).
-sidD=dddddddd-dddd-dddd-dddd-dddddddddddd
-printf '%s\n' "$sidD" >> "$map"
-
-# The LAST map line for a session has an empty change field, after an
-# earlier line for the same session had a valid one: the malformed line is
-# ignored (and only that line), so the session is still listed from its
-# earlier valid registration.
-sidE=eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee
-printf '%s %s spec\n' "$sidE" "$change" >> "$map"
-printf '%s\n' "$sidE" >> "$map"
+printf '%s\r\n' "$sidC     review" >> "$map"
 
 # An older session registered spec then plan lists as "spec+plan".
 sidOld=99999999-9999-9999-9999-999999999999
-printf '%s %s spec\n' "$sidOld" "$change" >> "$map"
-printf '%s %s plan\n' "$sidOld" "$change" >> "$map"
-
-# A literal (non-regex) match on the key field: a decoy change value that
-# would wrongly match the real one if '.' were treated as a regex wildcard
-# (dot-as-any-char) instead of compared literally.
-changedot="docs/changes/2026.10-11-demo3"
-decoychange="docs/changes/2026X10-11-demo3"
-sidDecoy=11111111-dddd-dddd-dddd-111111111111
-sidReal=22222222-dddd-dddd-dddd-222222222222
-printf '%s %s spec\n' "$sidDecoy" "$decoychange" >> "$map"
-printf '%s %s plan\n' "$sidReal" "$changedot" >> "$map"
+printf '%s spec\n' "$sidOld" >> "$map"
+printf '%s plan\n' "$sidOld" >> "$map"
 
 listing=$(sh "$script" list --project "$proj2" --change "$change")
 checkeq "a session registered plan then implement lists once as plan+implement" \
   "$(printf '%s\n' "$listing" | awk -v s="$sidA" '$1==s{print $2}')" "plan+implement"
 checkeq "the plan+implement session's transcript is resolved" \
   "$(printf '%s\n' "$listing" | awk -v s="$sidA" '$1==s{print $3}')" "$CLAUDE_CONFIG_DIR/projects/$slug2/$sidA.jsonl"
-check "only the given change's sessions are listed (decoy change excluded)" \
+check "another change's sessions are not listed" \
   sh -c "! printf '%s\n' \"$listing\" | grep -q '^$sidB '"
 checkeq "a review session on a CRLF line with collapsed spaces is parsed" \
   "$(printf '%s\n' "$listing" | awk -v s="$sidC" '$1==s{print $2}')" "review"
-check "empty change field (standalone line) listed nowhere" \
-  sh -c "! printf '%s\n' \"$listing\" | grep -q '^$sidD '"
 check "a session with no transcript prints - as the path" \
   sh -c "printf '%s\n' \"$listing\" | awk -v s='$sidC' '\$1==s{print \$3}' | grep -qx -- -"
-checkeq "an old spec-stage entry is still listed with stage spec, despite an empty change field on its last line" \
-  "$(printf '%s\n' "$listing" | awk -v s="$sidE" '$1==s{print $2}')" "spec"
 checkeq "an old session registered spec then plan lists as spec+plan" \
   "$(printf '%s\n' "$listing" | awk -v s="$sidOld" '$1==s{print $2}')" "spec+plan"
+checkeq "an absolute --change reads the same file" \
+  "$(sh "$script" list --project "$proj2" --change "$proj2/$change" | wc -l | tr -d ' ')" "$(printf '%s\n' "$listing" | wc -l | tr -d ' ')"
+checkeq "a change with no sessions file lists nothing" \
+  "$(sh "$script" list --project "$proj2" --change rpir/changes/none)" ""
 
-listingdot=$(sh "$script" list --project "$proj2" --change "$changedot")
-check "literal match: real session (literal dot) is listed" \
-  sh -c "printf '%s\n' \"$listingdot\" | grep -q '^$sidReal '"
-check "literal match: decoy (regex-wildcard-matchable) session is not listed" \
-  sh -c "! printf '%s\n' \"$listingdot\" | grep -q '^$sidDecoy '"
+# --- current subcommand -------------------------------------------------
+
+proj3="$root/project3"
+out=$(sh "$script" current --project "$proj3")
+rc=$?
+check "current exits 1 when no change has a sessions file" test "$rc" -eq 1
+checkeq "current prints nothing when no change has a sessions file" "$out" ""
+
+mkdir -p "$proj3/rpir/changes/old/.local" "$proj3/rpir/changes/new/.local"
+printf 's-old plan\n' > "$proj3/rpir/changes/old/.local/sessions"
+printf 's-new plan\n' > "$proj3/rpir/changes/new/.local/sessions"
+touch -t 202601010000 "$proj3/rpir/changes/old/.local/sessions"
+checkeq "current without --session picks the newest sessions file" \
+  "$(sh "$script" current --project "$proj3")" "rpir/changes/new"
+checkeq "current picks the change holding --session, though older" \
+  "$(sh "$script" current --project "$proj3" --session s-old)" "rpir/changes/old"
+checkeq "current falls back to the newest for an unknown --session" \
+  "$(sh "$script" current --project "$proj3" --session s-none)" "rpir/changes/new"
+printf 's-old implement\n' >> "$proj3/rpir/changes/new/.local/sessions"
+checkeq "a session in several changes resolves to the newest file" \
+  "$(sh "$script" current --project "$proj3" --session s-old)" "rpir/changes/new"
 
 [ "$fails" -eq 0 ] && echo "all sessions tests passed"
 exit "$fails"

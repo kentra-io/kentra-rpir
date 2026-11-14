@@ -15,7 +15,12 @@ answers. Lookups collect the sources; you weigh them and write the answer.
    `kentra-rpir:lookup`, `model` `haiku`, in the foreground: a background
    child reports to the main session, never to you. Put up to the number of
    lookups your task allows in one message, so they run at once; send the
-   next batch when they return.
+   next batch when they return. A launch notice ("Async agent launched") in
+   place of a lookup's result means it runs in the background: keep your
+   turn going and wait with the Monitor tool (load it with ToolSearch
+   `select:Monitor`) on an until-loop that ends once the lookup's result
+   exists, never a foreground `sleep`. Hand back only after every child has
+   finished.
 3. **Synthesise** from the excerpts the lookups return. Fetch a source
    yourself (load WebFetch with ToolSearch, `select:WebFetch`) only when two
    sources conflict, or a source's version is missing and the answer depends

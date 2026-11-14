@@ -8,14 +8,15 @@ const roles = {
 }
 
 const specRetroArgs = {
-  today: '2026-10-11', changeDir: '/p/docs/changes/2026-10-11-demo', projectRoot: '/p',
+  today: '2026-10-11', changeDir: '/p/rpir/changes/2026-10-11-demo', projectRoot: '/p',
   spec: '/p/c/spec.md', plan: '/p/c/plan.yaml', implReport: '/p/c/impl-report.md', out: '/p/c/spec-retro.md',
   template: '/plugin/templates/spec-retro.md',
   sessions: [{ id: 's1', stage: 'plan', path: '/p/s1.jsonl' }, { id: 's2', stage: 'implement', path: '/p/s2.jsonl' }],
   planningLog: '/p/c/planning-log.jsonl',
-  research: { dir: '/p/c/research', index: '/p/docs/research/index.jsonl' },
+  research: { dir: '/p/c/research', index: '/p/rpir/research/index.jsonl' },
   milestones: [{ number: 1, slug: 'core', paths: ['src/core/**'], diffRange: 'a..b' }, { number: 2, slug: 'cli', paths: ['src/cli/**'], diffRange: 'b..c' }],
-  priorRetros: [], roles, versions: { plugin: '0.6.0' },
+  roles, versions: { plugin: '0.6.0' },
+  improvements: '/plugin/scripts/improvements.mjs', projectId: 'demo', changeDate: '2026-10-11',
 }
 const { plan: _plan, ...smallTierArgs } = specRetroArgs
 
@@ -44,8 +45,8 @@ const specRetroPlanningOverride = {
     id: 's1', stages: 'plan', planStartRef: '/p/s1.jsonl:40',
     main: { beforePlan: { freshTokens: 11111, wallMs: 60000 }, planStage: { freshTokens: 22222, wallMs: 120000 } },
     agents: [
-      { role: 'workflow', part: 'before plan', runId: 'wf_abc-123', description: 'research', freshTokens: 7000, harnessTokens: 7500, agentMs: 30000 },
-      { role: 'workflow', part: 'plan stage', runId: 'wf_def-456', description: 'review', freshTokens: 9000, harnessTokens: 9500, agentMs: 40000 },
+      { role: 'workflow', part: 'before plan', runId: 'wf_run-1', description: 'research', freshTokens: 7000, workflowTokens: 7500, agentMs: 30000 },
+      { role: 'workflow', part: 'plan stage', runId: 'wf_run-2', description: 'review', freshTokens: 9000, workflowTokens: 9500, agentMs: 40000 },
       { role: 'other', part: 'before plan', description: 'Explore repo', model: 'haiku', transcript: '/p/s1/subagents/agent-b1.jsonl', freshTokens: 3000, agentMs: 20000 },
       { role: 'reviewer', mode: 'full', part: 'plan stage', description: 'Review plan', model: 'opus', transcript: '/p/s1/subagents/agent-r1.jsonl', freshTokens: 40000, agentMs: 90000 },
       { role: 'spike', job: 'p1', part: 'plan stage', description: 'research p1: parser', model: 'opus', transcript: '/p/s1/subagents/agent-sp.jsonl', report: '/p/c/research/x.md', freshTokens: 50000, agentMs: 100000 },
@@ -57,6 +58,20 @@ const specRetroPlanningOverride = {
 }
 const overridesAll = { ...specRetroPrepassOverride, ...specRetroPlanningOverride }
 const prompt = (c, label) => c.agents.find(a => a.label === label).prompt
+
+const twoFindings = {
+  outcome: 'ok', went_well: [],
+  findings: [
+    { id: 'F1', class: 'SPEC', summary: 's1', decisive_ref: '/p/s2.jsonl:1', made_sense: 'm', severity: 'high', scope: 'project', count: 1, wallMinutes: 5, tokens: 1000, userInterventions: 0 },
+    { id: 'F2', class: 'SKILL', summary: 's2', decisive_ref: '/p/s2.jsonl:2', made_sense: 'm', severity: 'low', scope: 'plugin', count: 2, wallMinutes: 0, tokens: 0, userInterventions: 1 },
+  ],
+}
+const registryExpect = withPlugin => ({
+  'register prompt has the project command and F1': (_, c) => prompt(c, 'register').includes('improvements.mjs" record --scope project') && prompt(c, 'register').includes('F1'),
+  ...(withPlugin ? {} : { 'register prompt has neither the plugin command nor F2': (_, c) => !prompt(c, 'register').includes('--scope plugin') && !prompt(c, 'register').includes('F2') }),
+  'no remediate agent': (_, c) => !c.agents.some(a => a.label === 'remediate'),
+  'writer prompt has neither Remediation nor Actions': (_, c) => !/Remediation|Actions/.test(prompt(c, 'write')),
+})
 
 export const fixtures = {
   'spec-retro': {
@@ -75,6 +90,18 @@ export const fixtures = {
         'writer targets the out path': (_, c) => prompt(c, 'write').includes('/p/c/spec-retro.md'),
         'models follow roles': (_, c) => c.agents.find(a => a.label === 'read:cli').model === 'sonnet' && c.agents.find(a => a.label === 'synthesis').model === 'opus',
         'no prompt mentions self-review': (_, c) => c.agents.every(a => !a.prompt.includes('self-review')),
+      },
+    },
+    'per-repo diffRange': {
+      args: { ...specRetroArgs, milestones: [
+        { number: 1, slug: 'core', paths: ['src/**'], diffRange: 'a..b', repo: '/w/api' },
+        { number: 2, slug: 'cli', paths: ['src/**'], diffRange: 'b..c', repo: '/w/web' }] },
+      overrides: specRetroPrepassOverride,
+      expect: {
+        'each reader diffs its own repository': (_, c) => prompt(c, 'read:core').includes('git -C /w/api diff a..b') && prompt(c, 'read:cli').includes('git -C /w/web diff b..c'),
+        'neither reader names the other repository': (_, c) => !prompt(c, 'read:core').includes('/w/web') && !prompt(c, 'read:cli').includes('/w/api'),
+        'writer facts pair each range with its repository': (_, c) => prompt(c, 'write').includes('/w/api: a..b, /w/web: b..c'),
+        'reconciliation logs both repositories': (_, c) => { const p = prompt(c, 'reconcile'); return p.includes('git -C /w/api log') && p.includes('git -C /w/web log') },
       },
     },
     'lead, nested implementer and spike job': {
@@ -114,7 +141,7 @@ export const fixtures = {
         'exactly one planning prepass, on the prepass model': (_, c) => c.agents.filter(a => a.label.startsWith('prepass:planning:')).length === 1 && c.agents.find(a => a.label === 'prepass:planning:s1').model === 'haiku',
         'prompt names the plan skill and the subagents dir': (_, c) => { const p = prompt(c, 'prepass:planning:s1'); return p.includes('kentra-rpir:plan') && p.includes('/p/s1/subagents/') },
         'prompt names the workflow journals and their agents': (_, c) => { const p = prompt(c, 'prepass:planning:s1'); return p.includes('/p/s1/workflows/') && p.includes('/p/s1/subagents/workflows/') },
-        'workflow rows in both parts with harness tokens': (r) => { const rows = r.planning[0].rows; const b = rows.find(x => x.part === 'before plan' && x.role === 'workflow'); const p = rows.find(x => x.part === 'plan stage' && x.role === 'workflow'); return b && b.count === 1 && b.freshTokens === 7000 && b.harnessTokens === 7500 && p && p.count === 1 },
+        'workflow rows in both parts with workflow tokens': (r) => { const rows = r.planning[0].rows; const b = rows.find(x => x.part === 'before plan' && x.role === 'workflow'); const p = rows.find(x => x.part === 'plan stage' && x.role === 'workflow'); return b && b.count === 1 && b.freshTokens === 7000 && b.workflowTokens === 7500 && p && p.count === 1 },
         'planning schema allows the workflow role': (_, c) => c.agents.find(a => a.label === 'prepass:planning:s1').schema.properties.agents.items.properties.role.enum.includes('workflow'),
         'workflow agents are not research jobs or reviews': r => JSON.stringify(r.planning[0].researchJobs) === JSON.stringify({ fact: 0, premise: 1, survey: 0 }) && r.planning[0].reviews.full === 1 && r.planning[0].reviews.diff === 0,
       },
@@ -126,7 +153,7 @@ export const fixtures = {
         'read:planning exists': (_, c) => c.agents.some(a => a.label === 'read:planning'),
         'prompt includes MODE: full': (_, c) => prompt(c, 'read:planning').includes('MODE: full'),
         'prompt includes the planning log path': (_, c) => prompt(c, 'read:planning').includes('/p/c/planning-log.jsonl'),
-        'prompt includes the research dir and index': (_, c) => { const p = prompt(c, 'read:planning'); return p.includes('/p/c/research') && p.includes('/p/docs/research/index.jsonl') },
+        'prompt includes the research dir and index': (_, c) => { const p = prompt(c, 'read:planning'); return p.includes('/p/c/research') && p.includes('/p/rpir/research/index.jsonl') },
         'prompt never mentions impl-report.md': (_, c) => !prompt(c, 'read:planning').includes('impl-report.md'),
         'look-for list says experiments or an advisor': (_, c) => { const p = prompt(c, 'read:planning'); return p.includes('experiments or an advisor on a normal premise') && !p.includes('a spike on a normal premise') },
       },
@@ -207,10 +234,31 @@ export const fixtures = {
       overrides: { ...overridesAll, reconcile: null },
       throws: /reconciliation returned no result/,
     },
-    'throws when remediation returns null': {
+    'registry stage records project findings only by default': {
       args: specRetroArgs,
-      overrides: { ...overridesAll, remediate: null },
-      throws: /remediation returned no result/,
+      overrides: { ...overridesAll, synthesis: twoFindings },
+      expect: registryExpect(false),
+    },
+    'registry stage records plugin findings when pluginRecord is on': {
+      args: { ...specRetroArgs, pluginRecord: true },
+      overrides: { ...overridesAll, synthesis: twoFindings },
+      expect: {
+        ...registryExpect(true),
+        'register prompt has the plugin command and F2': (_, c) => prompt(c, 'register').includes('improvements.mjs" record --scope plugin') && prompt(c, 'register').includes('F2'),
+      },
+    },
+    'a project scope without findings still gets a Record call and an empty array when pluginRecord is off': {
+      args: specRetroArgs,
+      overrides: { ...overridesAll, synthesis: { ...twoFindings, findings: [twoFindings.findings[1]] } },
+      expect: {
+        'register prompt has the project Record command with the ids': (_, c) => prompt(c, 'register').includes('improvements.mjs" record --scope project') && prompt(c, 'register').includes('--project-id "demo" --change "'),
+        'register prompt pipes [] and has no plugin scope': (_, c) => prompt(c, 'register').includes('pipe `[]`') && !prompt(c, 'register').includes('--scope plugin'),
+      },
+    },
+    'a null register agent does not throw': {
+      args: specRetroArgs,
+      overrides: { ...overridesAll, synthesis: twoFindings, register: null },
+      expect: { 'registry is null': r => r.registry === null },
     },
     'throws when the writer returns null': {
       args: specRetroArgs,

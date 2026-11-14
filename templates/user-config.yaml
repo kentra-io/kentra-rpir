@@ -1,0 +1,10 @@
+plugin:
+  record: true        # record retro findings into the plugin registry; kept for local tuning if you later fork the plugin
+  nudge: false        # also nudge about plugin findings at session start
+  source: ""          # plugin source path; used by improve-plugin, asked only when nudge is on
+nudge:
+  days: 3             # minimum days between nudges per registry
+  minFindings: 5      # findings recorded since the last improve run before a nudge
+audit:
+  skill: ""         # default audit skill, e.g. ponytail:ponytail-audit; empty for none
+  args: ""          # may use {{worktree}}, {{base}} and {{head}}, filled per repository

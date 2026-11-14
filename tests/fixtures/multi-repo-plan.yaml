@@ -1,0 +1,97 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/kentra-io/milestoned-plan-dag/v0.5.0/schema/plan.schema.json
+schemaVersion: 0.5.0
+description: |
+  Adds a `/health` endpoint to the `api` service and a status badge to the
+  `web` front end, which is a sibling repository of `api`. Read both
+  repositories first; each milestone is a contract with its scope, interfaces
+  and criteria, and the implementer decides how.
+
+  **The check.** Each repository's standard check is its milestone's check:
+  `go test ./...` in `api`, `npm test` in `../web`. `paths` are relative to
+  the milestone's repository.
+
+  **Requirement map.**
+  - R1 report service health over HTTP: milestones 1 and 2.
+  - R2 show it in the web UI: milestone 3.
+milestones:
+  - number: 1
+    slug: health-handler
+    repo: api
+    goal: "The api service computes its health"
+    description: |
+      Why: the endpoint and the badge both read one health value.
+
+      Scope: `internal/health/`.
+
+      Interfaces provided:
+      - `health.Status`, a struct with `OK bool` and `Detail string`;
+      - `health.Check(ctx context.Context) health.Status`.
+
+      Interfaces used: none.
+
+      Decisions: the service is healthy when its database answers a ping.
+    deliverables: |
+      internal/health/health.go; internal/health/health_test.go.
+    contract:
+      check: "go test ./..."
+      criteria:
+        - name: internal/health/health_test.go::TestCheckReportsDatabaseDown
+          given: "a database stub whose ping fails"
+          when: "Check runs"
+          then: "Status.OK is false and Detail names the ping error"
+      paths:
+        - internal/health/**
+  - number: 2
+    slug: health-endpoint
+    repo: api
+    goal: "The api service serves GET /health"
+    description: |
+      Why: R1, the HTTP surface the web front end calls.
+
+      Scope: `internal/server/`.
+
+      Interfaces provided: `GET /health` answering 200 with `{"ok":true}` when
+      healthy and 503 with `{"ok":false,"detail":"..."}` otherwise.
+
+      Interfaces used: `health.Check` from milestone 1.
+    deliverables: |
+      internal/server/health_route.go; internal/server/health_route_test.go.
+    contract:
+      check: "go test ./..."
+      criteria:
+        - name: internal/server/health_route_test.go::TestHealthReturns503WhenUnhealthy
+          given: "a health check reporting not OK"
+          when: "GET /health is served"
+          then: "the response is 503 with ok false in the JSON body"
+      paths:
+        - internal/server/**
+    depends-on:
+      - health-handler
+  - number: 3
+    slug: status-badge
+    repo: ../web
+    goal: "The web front end shows the api health"
+    description: |
+      Why: R2, users see at a glance whether the service is up.
+
+      Scope: `src/components/`.
+
+      Interfaces provided: `<StatusBadge />`, a React component rendering
+      "Online" or "Offline".
+
+      Interfaces used: `GET /health` from milestone 2 of the `api` repository.
+
+      Decisions: the badge polls every 30 seconds.
+    deliverables: |
+      src/components/StatusBadge.tsx; src/components/StatusBadge.test.tsx.
+    contract:
+      check: "npm test"
+      criteria:
+        - name: src/components/StatusBadge.test.tsx::rendersOfflineOn503
+          given: "a mocked GET /health answering 503"
+          when: "StatusBadge renders"
+          then: "it shows Offline"
+      paths:
+        - src/components/**
+    depends-on:
+      - health-endpoint

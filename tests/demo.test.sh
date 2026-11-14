@@ -12,14 +12,14 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/rpir-demo-test.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 tmp=$(cd "$tmp" && pwd)
 project="$tmp/project"
-plan="$project/docs/changes/2026-10-16-demo-diamond/plan.yaml"
+plan="$project/rpir/changes/2026-10-16-demo-diamond/plan.yaml"
 
 out=$(sh "$here/tests/demo/run-demo.sh" "$tmp" --print-only 2>&1)
 check "run-demo.sh exits 0" test $? -eq 0
 # shellcheck disable=SC2016 # $1 and $2 expand in the inner sh, not here
 check "prints the project path" sh -c 'printf "%s\n" "$1" | grep -qF "Demo project: $2"' _ "$out" "$project"
 # shellcheck disable=SC2016 # $1 and $2 expand in the inner sh, not here
-check "prints the claude command" sh -c 'printf "%s\n" "$1" | grep -qF "claude --plugin-dir \"$2\" \"/kentra-rpir:implement docs/changes/2026-10-16-demo-diamond\""' _ "$out" "$here"
+check "prints the claude command" sh -c 'printf "%s\n" "$1" | grep -qF "claude --plugin-dir \"$2\" \"/kentra-rpir:implement rpir/changes/2026-10-16-demo-diamond\""' _ "$out" "$here"
 
 mpd=${MILESTONED_PLAN_DAG:-milestoned-plan-dag}
 if command -v "$mpd" >/dev/null 2>&1; then
@@ -33,8 +33,8 @@ check "origin is the bare repo" test "$(git -C "$project" remote get-url origin)
 check "sh check.sh prints ok" test "$(cd "$project" && sh check.sh)" = ok
 
 # Spec requirement 15: the fixture's contents.
-spec="$project/docs/changes/2026-10-16-demo-diamond/spec.md"
-cfg="$project/.kentra-rpir.yaml"
+spec="$project/rpir/changes/2026-10-16-demo-diamond/spec.md"
+cfg="$project/rpir/config.yaml"
 check "spec is status: planned" grep -qx 'status: planned' "$spec"
 check "Haiku lead" grep -qF 'lead:        { agent: "kentra-rpir:lead",        model: haiku }' "$cfg"
 check "Haiku implementer" grep -qF 'implementer: { agent: "kentra-rpir:implementer", model: haiku }' "$cfg"

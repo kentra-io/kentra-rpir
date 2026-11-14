@@ -1,5 +1,5 @@
 # kentra-rpir project configuration. Missing keys take these defaults.
-changesDir: docs/changes            # where change folders live
+track: true                         # false: gitignores all of rpir/
 tracker: none                       # none | github | jira
 constitution: false                 # true: the plan stage and its reviewer read constitution/constitution.md
 spec:
@@ -10,7 +10,8 @@ roles:                              # agent: a subagent type; model: overrides t
   implementer: { agent: "kentra-rpir:implementer", model: sonnet }  # one per piece of work, dispatched by the lead
   verifier:    { agent: "kentra-rpir:verifier",    model: opus }
   impl-orchestrator: { model: opus }                              # the main session running implement
-  retro:       { agent: "kentra-rpir:retro",       model: opus }    # synthesis, reconciliation, remediation
+  review-orchestrator: { model: opus }                            # the main session running review
+  retro:       { agent: "kentra-rpir:retro",       model: opus }    # synthesis and reconciliation
   prepass:     { agent: "kentra-rpir:retro",       model: haiku }   # transcript signals and skeleton timeline
   reader:      { agent: "kentra-rpir:retro",       model: sonnet }  # per-milestone blind readers
 research:
@@ -18,8 +19,6 @@ research:
   maxParallel: 4                    # research jobs running at once in one session
   maxLookups: 4                     # lookups one job runs at once
   staleMinutes: 60                  # a running job older than this loses its slot
-  dir: docs/research                # reports from research outside an rpir change
-  index: docs/research/index.jsonl  # project-wide index of findings, checked before any job starts
 implement:
   maxParallel: 3                    # milestones in progress at once: a lead each, from dispatch to merge
   cacheWindowMinutes: 5             # a verifier is resumed for re-verification only this soon after its last hand-back
@@ -29,3 +28,6 @@ implement:
   branchPrefix: rpir/
   openPullRequest: true             # only when the remote is GitHub and gh is authenticated
   push: true                        # false: the stages commit locally and push only when the user asks
+audit:                              # a skill run in the background on each repository after implement; wins over the user config's audit
+  skill: ""                         # e.g. ponytail:ponytail-audit; empty for none
+  args: ""                          # may use {{worktree}}, {{base}} and {{head}}, filled per repository

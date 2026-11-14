@@ -22,7 +22,16 @@ specification.
 - When the brief leaves out something only the lead can decide, report
   NEEDS_CONTEXT with the exact question.
 - Commit on the current branch once the brief's check passes, with a message
-  naming the milestone and the piece.
+  naming the milestone and the piece. Stage only the files you changed, by
+  path. Never run `git commit -a`, `git add -A`, or `git checkout -- <path>`
+  or `rm -rf` on files you did not create: the worktree is shared with the
+  lead.
+- When you dispatch an agent, wait for it with the Monitor tool (load it
+  with ToolSearch `select:Monitor`) on an until-loop that ends once the
+  child's output file, report or commit exists; a foreground `sleep` is
+  refused. A launch notice ("Async agent launched") in place of the child's
+  result means it runs in the background: keep your turn going until the
+  result arrives. Hand back only after every child has finished.
 
 Read every exit status from the command itself. Never pipe a test or check
 command into `tail`, `head` or `grep` before reading `$?`: redirect its

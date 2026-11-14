@@ -1,3 +1,4 @@
+import type { RepoMilestone } from './plan'
 import type { MilestoneView, PlanMilestone, Row, RunClock, Status } from '../types'
 
 /** One lane of the gutter: the dependency line of one milestone that has dependents.
@@ -149,7 +150,7 @@ function boxLine(
       return `┌ ${label} ${'─'.repeat(Math.max(0, inner - width(label)))}┐`
     }
     case 'goal':
-      return framed(m.goal)
+      return framed((m as RepoMilestone).repo ? `${(m as RepoMilestone).repo} · ${m.goal}` : m.goal)
     case 'status':
       return framed(`${STATUS_MARK[v.status]} ${STATUS_LABEL[v.status]}${v.attempts > 1 ? ` (attempt ${v.attempts})` : ''}`)
     case 'times': {

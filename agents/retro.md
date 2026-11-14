@@ -1,6 +1,6 @@
 ---
 name: retro
-description: Reads coding-agent session transcripts for a kentra-rpir retro — pre-pass signals, blind per-milestone reading, synthesis, reconciliation and remediation — citing transcript evidence for every claim.
+description: Reads coding-agent session transcripts for a kentra-rpir retro — pre-pass signals, blind per-milestone reading, synthesis, reconciliation and registry recording — citing transcript evidence for every claim.
 model: opus
 ---
 

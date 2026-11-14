@@ -29,9 +29,10 @@ const MILESTONES = [
 const planYaml = (count: number) =>
   `schemaVersion: 0.3.0\ndescription: Demo\nmilestones:\n${MILESTONES.slice(0, count).join('')}`
 const filesWithPlan = (count: number): Record<string, string | undefined> => ({
-  '.kentra-rpir/sessions.map': 'S0 docs/changes/old implement\nS1 docs/changes/demo implement\n',
-  'docs/changes/demo/spec.md': '---\ntitle: Demo change\n---\n\n## Problem\n',
-  'docs/changes/demo/plan.yaml': planYaml(count),
+  'rpir/changes/old/.local/sessions': 'S0 implement\n',
+  'rpir/changes/demo/.local/sessions': 'S1 plan\nS1 implement\n',
+  'rpir/changes/demo/spec.md': '---\ntitle: Demo change\n---\n\n## Problem\n',
+  'rpir/changes/demo/plan.yaml': planYaml(count),
 })
 const implPrompt = (n: number, slug: string) =>
   `You are implementing milestone M${n} \`${slug}\` of the change "Demo change".\n\nWork only in /x.`
@@ -70,6 +71,10 @@ function setup(on: On, files: Record<string, string | undefined>): Kit {
   })
   on('session.id', () => ({ value: 'S1' }))
   on('session.root', () => ({ value: '/repo' }))
+  on('fs.list', (_$, e) => ({
+    value: [...new Set(Object.keys(kit.files).filter(k => e.path.endsWith('/rpir/changes') && k.startsWith('rpir/changes/'))
+      .map(k => k.split('/')[2]!))].map(name => ({ name, kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false })),
+  }))
   on('fs.read', (_$, e) => {
     const hit = Object.keys(kit.files).find(k => e.path === k || e.path.endsWith(`/${k}`))
     const text = hit === undefined ? undefined : kit.files[hit]
@@ -185,6 +190,21 @@ test('merge bash marks the milestone merged', async ($, on) => {
   }
 })
 
+test('multi-repo plan shows each milestone repository', async ($, on) => {
+  const files = filesWithPlan(3)
+  files['rpir/changes/demo/plan.yaml'] = planYaml(3).replace('0.3.0', '0.5.0')
+    .replace('slug: a\n', 'slug: a\n    repo: ../shared\n').replace('slug: b\n', 'slug: b\n    repo: app\n').replace('slug: c\n', 'slug: c\n    repo: app\n')
+  setup(on, files)
+  await spawn($, implPrompt(1, 'a'), 'tu-1')
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, component: 'Pane', props: PANE_PROPS, requestId: PANE } as never)
+    expect(await ui.find({ type: 'Text', text: /\.\.\/shared · Goal a/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /app · Goal b/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /app · Goal c/ })).toBeDefined()
+    await ui.unmount()
+  }
+})
+
 test('pane draws header rows as Buttons', async ($, on) => {
   setup(on, filesWithPlan(3))
   await spawn($, implPrompt(1, 'a'), 'tu-1')
@@ -203,7 +223,7 @@ test('later dispatch reloads the plan', async ($, on) => {
   const kit = setup(on, filesWithPlan(2))
   await spawn($, implPrompt(1, 'a'), 'tu-1')
   expect((runOf(kit))!.plan!.milestones).toHaveLength(2)
-  kit.files['docs/changes/demo/plan.yaml'] = planYaml(3)
+  kit.files['rpir/changes/demo/plan.yaml'] = planYaml(3)
   await spawn($, implPrompt(2, 'b'), 'tu-2')
   expect((runOf(kit))!.plan!.milestones).toHaveLength(3)
 })
@@ -351,7 +371,7 @@ const mergeRow = (n: number, slug: string) => ({
   toolUses: [{ tool_use_id: `tu-m${n}`, tool: 'Bash', input: { command: `git -C /w merge --no-ff rpir/x--m${n} -m "Merge M${n} ${slug}"` }, text: 'Merge made.' }],
 })
 const HISTORY = [
-  { role: 'user', text: '/kentra-rpir:implement docs/changes/demo', toolUses: [] },
+  { role: 'user', text: '/kentra-rpir:implement rpir/changes/demo', toolUses: [] },
   dispatchRow(implPrompt(1, 'a'), 'x1'),
   handBackRow('x1', 'STATUS: DONE'),
   dispatchRow(verifyPrompt(1, 'a'), 'x2'),

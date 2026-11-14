@@ -1,13 +1,13 @@
 export const meta = {
   name: 'spec-retro',
-  description: 'Retro of one kentra-rpir change from its session transcripts: pre-pass signals, blind per-milestone readers, synthesis with fault classes, reconciliation of the implementation report, remediation actions, and spec-retro.md',
+  description: 'Retro of one kentra-rpir change from its session transcripts: pre-pass signals, blind per-milestone readers, synthesis with fault classes, reconciliation of the implementation report, spec-retro.md, and registry recording',
   whenToUse: 'Run by the kentra-rpir review skill after implementation',
   phases: [
     { title: 'Prepass', detail: 'lead, implementer and verifier signals and skeletons from each implement session; planning cost per role, split where the plan skill loads' },
     { title: 'Read', detail: 'one blind reader per milestone plus one for the planning sessions; troubled milestones read in full' },
     { title: 'Synthesize', detail: 'merge findings, assign fault classes including PLAN; reconcile the implementation report' },
-    { title: 'Remediate', detail: 'one action per finding' },
     { title: 'Write', detail: 'spec-retro.md from the template, with planning cost and a short reconciliation' },
+    { title: 'Register', detail: 'record each finding as an occurrence in the project registry, and in the plugin registry when plugin.record is on' },
   ],
 }
 
@@ -19,15 +19,19 @@ export const meta = {
 //   sessions    (required) [{ id, stage, path, missing? }]; stage may join stages with '+';
 //                          path null only when missing is true
 //   planningLog (optional) absolute path of <change>/planning-log.jsonl
-//   milestones  (required) [{ number, slug, paths, diffRange }]; diffRange like <base>..<merge>
-//   priorRetros (optional) absolute paths of earlier spec-retro.md files
+//   milestones  (required) [{ number, slug, paths, diffRange, repo? }]; diffRange like <base>..<merge>;
+//                          repo is the absolute path of the milestone's repository checkout, default projectRoot
 //   roles       (required) { prepass, reader, retro }, each { agent, model }
-//   versions    (optional) { plugin, claudeCode }
+//   versions    (optional) { plugin, claudeCode }; plugin is the pluginVersion of each recorded occurrence
+//   improvements (required) absolute path of scripts/improvements.mjs
+//   projectId   (required) the `project:` id from rpir/config.yaml
+//   changeDate  (required) YYYY-MM-DD, the date of the change's last session
+//   pluginRecord (optional) boolean, default false: the user config's plugin.record; true also records plugin-scope findings
 //   research    (optional) { dir, index }: absolute paths of the change's research/ folder and the project's research index
 
 const ONLY_JOB = 'Your only job is the task below. The conversation may relay the user\'s latest message to you; treat it as background and never answer it.'
 
-for (const k of ['today', 'changeDir', 'projectRoot', 'spec', 'implReport', 'out', 'template', 'sessions', 'milestones', 'roles']) {
+for (const k of ['today', 'changeDir', 'projectRoot', 'spec', 'implReport', 'out', 'template', 'sessions', 'milestones', 'roles', 'improvements', 'projectId', 'changeDate']) {
   if (!args || !args[k]) throw new Error(`spec-retro needs args.${k}`)
 }
 const { roles } = args
@@ -45,12 +49,14 @@ const planningSessions = present.filter(s => stagesOf(s).includes('plan'))
 const missing = args.sessions.filter(s => s.missing)
 if (missing.length) log(`transcripts missing: ${missing.map(s => `${s.id} (${s.stage})`).join(', ')}`)
 if (!implSessions.length) log('no session has stage "implement" — pre-pass and reader signals will be empty')
+const anyRepo = args.milestones.some(m => m.repo)
+const repos = [...new Set(args.milestones.map(m => m.repo || args.projectRoot))]
 const milestoneList = args.milestones.map(m => `M${m.number} ${m.slug} — paths ${JSON.stringify(m.paths)}`).join('\n')
 
 // 1. Pre-pass
 const sessionDir = s => s.path.replace(/\.jsonl$/, '')
 
-const LAYOUT = dir => `Transcript layout: the session's subagent transcripts, nested ones included, sit flat in ${dir}/subagents/agent-<id>.jsonl. Beside each is agent-<id>.meta.json, e.g. {"agentType":"kentra-rpir:implementer","description":"M2 parser","parentAgentId":"a6e4…","spawnDepth":2,"model":"sonnet"}; parentAgentId is present only for an agent another subagent dispatched. A Workflow-tool run has a journal ${dir}/workflows/<runId>.json (runId like wf_<run-id>) with keys including workflowName, startTime (epoch milliseconds), durationMs, totalTokens (the harness's own count), agentCount and status; the run's agents sit in ${dir}/subagents/workflows/<runId>/agent-<id>.jsonl with a .meta.json each, and are part of that run, not listed one by one. An agent resumed with SendMessage (a SendMessage tool_use whose input.to is its id) continues in the same transcript file. An agent's first user message is its dispatch prompt.
+const LAYOUT = dir => `Transcript layout: the session's subagent transcripts, nested ones included, sit flat in ${dir}/subagents/agent-<id>.jsonl. Beside each is agent-<id>.meta.json, e.g. {"agentType":"kentra-rpir:implementer","description":"M2 parser","parentAgentId":"a6e4…","spawnDepth":2,"model":"sonnet"}; parentAgentId is present only for an agent another subagent dispatched. A Workflow-tool run has a journal ${dir}/workflows/<runId>.json (runId like wf_<id>) with keys including workflowName, startTime (epoch milliseconds), durationMs, totalTokens (the Workflow tool's own count), agentCount and status; the run's agents sit in ${dir}/subagents/workflows/<runId>/agent-<id>.jsonl with a .meta.json each, and are part of that run, not listed one by one. An agent resumed with SendMessage (a SendMessage tool_use whose input.to is its id) continues in the same transcript file. An agent's first user message is its dispatch prompt.
 Roles:
 - lead: description \`Lead M<n> <slug>\`, prompt line 1 "You are leading milestone M<n> \`<slug>\`"; its hand-backs carry STATUS: DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, BLOCKED or WAITING.
 - verifier: description \`Verify M<n> <slug>\`; a re-verification may instead be a SendMessage resume of the same verifier, whose message starts \`Re-verify M<n>\`; prompt line 1 "You are verifying milestone M<n> \`<slug>\`"; its hand-backs carry VERDICT: PASS or FAIL.
@@ -108,7 +114,7 @@ const PLANNING_SCHEMA = {
       job: { type: 'string' }, parentId: { type: 'string' },
       part: { type: 'string', enum: ['before plan', 'plan stage'] },
       description: { type: 'string' }, model: { type: 'string' }, transcript: { type: 'string' }, report: { type: 'string' },
-      freshTokens: { type: 'number' }, harnessTokens: { type: 'number' }, agentMs: { type: 'number' },
+      freshTokens: { type: 'number' }, workflowTokens: { type: 'number' }, agentMs: { type: 'number' },
     }, required: ['role', 'part'] } },
     questionRounds: { type: 'number' },
     statusResets: { type: 'array', items: { type: 'object', properties: {
@@ -153,7 +159,7 @@ The plan stage starts where the plan skill first loads: a Skill tool_use whose i
 Report:
 - main: the main transcript's own freshTokens and wallMs on each side of planStartRef (beforePlan, planStage)
 - agents: every subagent dispatched in planning, with role, mode (reviewer: full or diff), job (a research job's id), parentId, part, description, model, transcript path, report (a spike's or researcher's path from its prompt's "Report:" line; for a fact job <research dir>/<report name>.md from the report name in its description${args.research?.dir ? `, the research dir being ${args.research.dir}` : ''}), freshTokens and agentMs. ${FRESH_TOKENS}
-- Workflow-tool runs: report each run started during planning as one agent entry with role "workflow", runId, description = its workflowName, part by line order: the main transcript's Workflow tool_result that names the runId comes before the plan skill's load line ("before plan") or after it ("plan stage"); when no line names it, compare the journal's startTime, in epoch milliseconds, with the load line's ISO timestamp converted to epoch milliseconds (jq: sub("[.][0-9]+Z$";"Z") | fromdateiso8601 * 1000), freshTokens = the fresh-token sum over the agent transcripts in subagents/workflows/<runId>/, harnessTokens = the journal's totalTokens, agentMs = its durationMs. Runs that started after the implement or review skill loaded are left out like everything else. Do not list a run's own agents separately.
+- Workflow-tool runs: report each run started during planning as one agent entry with role "workflow", runId, description = its workflowName, part by line order: the main transcript's Workflow tool_result that names the runId comes before the plan skill's load line ("before plan") or after it ("plan stage"); when no line names it, compare the journal's startTime, in epoch milliseconds, with the load line's ISO timestamp converted to epoch milliseconds (jq: sub("[.][0-9]+Z$";"Z") | fromdateiso8601 * 1000), freshTokens = the fresh-token sum over the agent transcripts in subagents/workflows/<runId>/, workflowTokens = the journal's totalTokens, agentMs = its durationMs. Runs that started after the implement or review skill loaded are left out like everything else. Do not list a run's own agents separately.
 - questionRounds: an assistant turn that calls AskUserQuestion, or whose last text ends in a question, followed by a user message — one round per such exchange
 - statusResets: every \`status:\` edit to spec.md or plan.yaml that moves backwards in draft → agreed → planned → implementing → in-review → done, each as { from, to, ref: "<file>:<line>" }
 
@@ -230,7 +236,7 @@ const planning = planningPrepasses.map((p, i) => p && { p, s: planningSessions[i
       rows.push({
         part, role: label, count: group.length,
         freshTokens: group.reduce((t, a) => addCost(t, a.freshTokens), null),
-        harnessTokens: group.reduce((t, a) => addCost(t, a.harnessTokens), null),
+        workflowTokens: group.reduce((t, a) => addCost(t, a.workflowTokens), null),
         time: group.reduce((t, a) => addCost(t, a.agentMs), null),
       })
     }
@@ -323,7 +329,7 @@ ${LAYOUT(implDirs)}
 Read:
 - the spec: ${args.spec}
 - ${args.plan ? `the plan: ${args.plan} (milestone ${m.slug})` : `no plan file: a small-tier change, the spec is the whole contract; the milestone's paths are ${JSON.stringify(m.paths)}`}
-- the diff: \`git -C ${args.projectRoot} diff ${m.diffRange}\`
+- the diff: \`git -C ${m.repo || args.projectRoot} diff ${m.diffRange}\`
 - the signals: ${JSON.stringify(s || 'none — the pre-pass found nothing for this milestone')}
 - the skeleton timeline: ${JSON.stringify(skeletons.get(m.slug) || [])}
 - the milestone's agents (role, description, transcript): ${JSON.stringify(agentList)}
@@ -355,8 +361,13 @@ const SYNTH_SCHEMA = {
       decisive_ref: { type: 'string' },
       made_sense: { type: 'string' },
       severity: { type: 'string', enum: ['high', 'medium', 'low'] },
+      scope: { type: 'string', enum: ['project', 'plugin'] },
+      count: { type: 'number' },
+      wallMinutes: { type: 'number' },
+      tokens: { type: 'number' },
+      userInterventions: { type: 'number' },
       milestones: { type: 'array', items: { type: 'string' } },
-    }, required: ['id', 'class', 'summary', 'decisive_ref', 'made_sense', 'severity'] } },
+    }, required: ['id', 'class', 'summary', 'decisive_ref', 'made_sense', 'severity', 'scope', 'count', 'wallMinutes', 'tokens', 'userInterventions'] } },
     went_well: { type: 'array', items: { type: 'string' } },
     research: { type: 'array', items: { type: 'object', properties: {
       report: { type: 'string' }, kind: { type: 'string' }, verdict: { type: 'string' }, confidence: { type: 'string' }, restsOn: { type: 'string' },
@@ -391,6 +402,8 @@ Merge the blind readers' findings for the change in ${args.changeDir} into one l
 - ENV: tools, dependencies, sandbox, flaky infrastructure
 - MODEL: the model failed with adequate context in front of it
 For each, say how the action made sense to the agent at the time, given what was in its context. Ask how, not why.
+Give each finding a scope: \`plugin\` when the fix belongs in a kentra-rpir skill, agent, workflow, template or script; \`project\` when it belongs in the project's own files (AGENTS.md, conventions, CI, config, code).
+Give each finding its cost: \`count\` is its instances within this change; \`wallMinutes\`, \`tokens\` (fresh tokens) and \`userInterventions\` are what it cost, estimated from the readers' evidence and the cost JSON, 0 when not measurable.
 Write the outcome in two or three sentences from the verifier results in the readers' evidence — not from any report.
 
 Readers' output (JSON): ${readsJson}
@@ -404,7 +417,7 @@ You are done when every reader finding is in exactly one merged finding.`,
     as('retro', { label: 'synthesis', phase: 'Synthesize', schema: SYNTH_SCHEMA })),
   () => agent(`${ONLY_JOB}
 
-Check every claim in the implementation report ${args.implReport} against the blind readers' evidence below and, where that is silent, against the transcripts and \`git -C ${args.projectRoot} log\`. A claim is a statement of fact: an outcome, a count, a test passing, a decision, a concern settled. Verdict per claim: confirmed, contradicted or unsupported, with evidence.
+Check every claim in the implementation report ${args.implReport} against the blind readers' evidence below and, where that is silent, against the transcripts and ${repos.map(r => `\`git -C ${r} log\``).join(', ')}. A claim is a statement of fact: an outcome, a count, a test passing, a decision, a concern settled. Verdict per claim: confirmed, contradicted or unsupported, with evidence.
 
 Readers' output (JSON): ${readsJson}
 Implementation counts from the pre-pass (JSON): ${implementationJson}
@@ -421,67 +434,86 @@ const contradicted = reconciliation.claims.filter(c => c.verdict === 'contradict
 const notConfirmed = reconciliation.claims.filter(c => c.verdict !== 'confirmed')
 const confirmedCount = reconciliation.claims.length - notConfirmed.length
 
-// 4. Remediation
-const REMEDY_SCHEMA = {
-  type: 'object',
-  properties: {
-    actions: { type: 'array', items: { type: 'object', properties: {
-      finding: { type: 'string' },
-      kind: { type: 'string', enum: ['diff', 'eval case', 'automated check', 'no action'] },
-      target: { type: 'string' },
-      detail: { type: 'string' },
-    }, required: ['finding', 'kind', 'target', 'detail'] } },
-    recurring: { type: 'array', items: { type: 'string' } },
-  },
-  required: ['actions', 'recurring'],
-}
-
-const remediation = await agent(`${ONLY_JOB}
-
-Propose exactly one action per finding below. Contradicted self-report claims are findings too: give them ids R1, R2, … and class PROCESS unless the evidence says otherwise.
-- diff: a change to a named skill, agent definition, template or CLAUDE.md, written as before and after. Say what text it removes, or why its added length pays for itself.
-- eval case: the prompt, the fixture commit, and what counts as a pass.
-- automated check: a hook, lint, test or schema rule, and where it lives.
-- no action: model variance, with the reasoning.
-Prefer an automated check to more prose. The target is a file path in ${args.projectRoot}, or "kentra-io/kentra-rpir: <file>" when the fix belongs in a kentra-rpir skill, agent, workflow or template.
-
-Then compare with earlier retros and list recurring fault classes and findings: ${(args.priorRetros || []).join(', ') || '(no earlier retros)'}
-
-Findings (JSON): ${JSON.stringify(synthesis.findings)}
-Contradicted claims (JSON): ${JSON.stringify(contradicted)}
-
-You are done when every finding and every contradicted claim has one action.`,
-  as('retro', { label: 'remediate', phase: 'Remediate', schema: REMEDY_SCHEMA }))
-
-if (!remediation) throw new Error('spec-retro: remediation returned no result')
-
-// 5. Write
+// 4. Write
 const written = await agent(`${ONLY_JOB}
 
 Write ${args.out} following the template ${args.template}. Fill every section from the JSON below; do not add findings of your own. A null field in it was not measured: write — for it. Write nothing else.
 
-Header facts: change ${args.changeDir}; commits ${args.milestones.map(m => m.diffRange).join(', ')}; tier ${args.plan ? 'standard' : 'small'}; models ${models}; kentra-rpir ${args.versions?.plugin || 'unknown'}; Claude Code ${claudeCodeVersion}; sessions ${args.sessions.map(s => s.missing ? `${s.id}: ${s.stage} (transcript missing)` : `${s.id}: ${s.stage}`).join(', ')}.
+Header facts: change ${args.changeDir}; commits ${args.milestones.map(m => anyRepo ? `${m.repo || args.projectRoot}: ${m.diffRange}` : m.diffRange).join(', ')}; tier ${args.plan ? 'standard' : 'small'}; models ${models}; kentra-rpir ${args.versions?.plugin || 'unknown'}; Claude Code ${claudeCodeVersion}; sessions ${args.sessions.map(s => s.missing ? `${s.id}: ${s.stage} (transcript missing)` : `${s.id}: ${s.stage}`).join(', ')}.
 ${missing.length ? `Missing transcripts — list these in Open questions too: ${missing.map(s => `${s.id}: ${s.stage} (transcript missing)`).join(', ')}` : ''}
 
 Readers (timelines): ${readsJson}
 Planning cost (JSON): ${JSON.stringify(planning)}
-harnessTokens is the Workflow tool's own count, shown beside fresh tokens for workflow rows, not added into them.
+workflowTokens is the Workflow tool's own count, shown beside fresh tokens for workflow rows, not added into them.
 Research (JSON): ${JSON.stringify(synthesis.research || [])}
 Implementation cost (JSON): ${implementationJson}
 Synthesis: ${JSON.stringify(synthesis)}
 Reconciliation (only the contradicted and unsupported claims; ${confirmedCount} other claims were confirmed): ${JSON.stringify(notConfirmed)}
-Remediation: ${JSON.stringify(remediation)}
 
 You are done when ${args.out} has every template section filled.`,
   as('retro', { label: 'write', phase: 'Write' }))
 
 if (!written) throw new Error('spec-retro: the writer returned no result')
 
+// 5. Register
+const REGISTER_SCHEMA = {
+  type: 'object',
+  properties: {
+    nodeMissing: { type: 'boolean' },
+    scopes: { type: 'array', items: { type: 'object', properties: {
+      scope: { type: 'string', enum: ['project', 'plugin'] },
+      recorded: { type: 'number' },
+      regressed: { type: 'array', items: { type: 'string' } },
+    }, required: ['scope', 'recorded', 'regressed'] } },
+  },
+  required: ['nodeMissing', 'scopes'],
+}
+
+phase('Register')
+const cli = `node "${args.improvements}"`
+const changeName = args.changeDir.split('/').filter(Boolean).pop()
+const key = `--project-id "${args.projectId}" --change "${changeName}"`
+const registerScopes = {
+  project: { list: `${cli} list --scope project --project "${args.projectRoot}"`, record: `${cli} record --scope project --project "${args.projectRoot}" ${key}` },
+  plugin: { list: `${cli} list --scope plugin`, record: `${cli} record --scope plugin ${key}` },
+}
+const scopeSections = ['project', 'plugin']
+  .filter(sc => sc === 'project' || args.pluginRecord === true)
+  .map(sc => ({ sc, findings: synthesis.findings.filter(f => f.scope === sc) }))
+  .map(g => g.findings.length
+    ? `Scope ${g.sc}
+Findings (JSON): ${JSON.stringify(g.findings)}
+List: ${registerScopes[g.sc].list}
+Record: ${registerScopes[g.sc].record}`
+    : `Scope ${g.sc}
+No findings: skip List and pipe \`[]\` into Record, which clears this change's earlier occurrences.
+Record: ${registerScopes[g.sc].record}`)
+
+const registered = await agent(`${ONLY_JOB}
+
+Record the findings below into the improvement registries.
+
+First run \`node -e 'process.exit(+process.versions.node.split(".")[0] < 18)'\`. If it fails (node is missing or older), run nothing else and return nodeMissing: true with no scopes.
+
+Otherwise, for each scope below:
+1. Run its List command and read the classes. A scope without findings has no List command.
+2. Match each finding to an existing class when it is the same problem with the same fix, and use that class's \`id\`. Otherwise give a new class: \`title\`, \`problem\`, \`fix\`, \`complexity\` (S, M or L).
+3. Pipe one JSON array for the scope into one Record call on stdin (a heredoc is fine). One element per finding, with these fields: project "${args.projectId}"; change "${changeName}"; findingId, the finding's id; findingRef "${args.out}"; date "${args.changeDate}"; pluginVersion "${args.versions?.plugin || 'unknown'}"; count, wallMinutes, tokens, userInterventions and severity, copied from the finding; and either \`id\` or the new class's fields.
+
+Return, per scope, the number of occurrences recorded and the ids of classes whose status is \`regressed\` in Record's output.
+
+${scopeSections.join('\n\n')}
+
+You are done when each scope above had exactly one Record call that exited 0.`,
+  as('retro', { label: 'register', phase: 'Register', schema: REGISTER_SCHEMA }))
+const registry = registered ? { nodeMissing: registered.nodeMissing, scopes: registered.scopes } : null
+
 return {
   out: args.out,
   findings: synthesis.findings,
   contradicted,
-  actions: remediation.actions,
+  registry,
+  pluginRecord: Boolean(args.pluginRecord),
   planning,
   implementation,
   research: synthesis.research || [],

@@ -7,9 +7,11 @@ idea to merged code, in three stages:
 |---|---|---|---|
 | **plan** | `/kentra-rpir:plan` | answer questions, agree the spec, approve the plan | `spec.md`, `plan.yaml`, research reports |
 | **implement** | `/kentra-rpir:implement` | settle what the orchestrator asks, check the `human:` criteria | code, `impl-report.md` |
-| **review** | `/kentra-rpir:review` | review the code and the retro | `spec-retro.md` |
+| **review** | `/kentra-rpir:review` | review the code | `spec-retro.md`, findings in the registries |
 
 `/kentra-rpir:research` runs the research pool on its own, outside a change.
+`/kentra-rpir:improve` and `/kentra-rpir:improve-plugin` turn the findings that
+retros recorded into changes to your project and to the plugin.
 
 It is RPI (Research → Plan → Implement) with an explicit Review stage, for a solo
 founder:
@@ -35,8 +37,10 @@ founder:
   redacted log in the change folder; the retro reads every session's transcript,
   not the agents' account of their work.
 
-Everything for one change lives in `docs/changes/<date>-<slug>/`. See
-[`docs/process.md`](docs/process.md) for the whole process.
+Everything for one change lives in `rpir/changes/<date>-<slug>/`, and every
+other kentra-rpir file of a project lives under the same `rpir/` folder. A plan
+can span several repositories. See [`docs/process.md`](docs/process.md) for the
+whole process.
 
 ## Install
 
@@ -46,11 +50,18 @@ Everything for one change lives in `docs/changes/<date>-<slug>/`. See
 brew install kentra-io/tap/milestoned-plan-dag
 ```
 
-Needs `milestoned-plan-dag` 0.4.0 or later (`brew upgrade
-kentra-io/tap/milestoned-plan-dag`) and `jq` 1.6 or later.
+Needs `milestoned-plan-dag` 0.5.0 or later (`brew upgrade
+kentra-io/tap/milestoned-plan-dag`) and `jq` 1.6 or later. `node` 18 or later is
+optional: without it the findings are not recorded, and the nudge and the
+`improve` skills do nothing.
 
 Optional: [`adr-sourced-constitution`](https://github.com/kentra-io/adr-sourced-constitution)
 for a project constitution that the plan stage and its reviewer read.
+
+**Projects on the old layout.** A project without `rpir/config.yaml`
+is on the layout of kentra-rpir 0.6.x and earlier. Every stage stops on it and names `scripts/migrate-layout.sh`,
+which moves the files into `rpir/`. Run it by hand, review `git status`, and
+commit.
 
 **Changes started on 0.5.x.** A spec with `tier: full` or `tier: light` belongs
 to a change started on kentra-rpir 0.5.x. Finish it on 0.5.x: this version's
@@ -65,20 +76,41 @@ stages stop on it and do not migrate it.
    `.worktrees/<slug>/`, pushes it, and opens a pull request when the remote is GitHub and gh is
    authenticated.
 3. `/kentra-rpir:review` presents the change for your code review while the retro
-   runs, then walks you through the retro's actions.
+   runs, then applies the findings of the audit, when one is configured. The
+   retro records its findings in the registries and review shows one line.
+4. `/kentra-rpir:improve` ranks the findings recorded in the project, proposes
+   the top five, and carries out the ones you accept.
+   `/kentra-rpir:improve-plugin` does the same for kentra-rpir itself.
 
-Each stage ends with one line naming the next.
+Each stage ends with one line naming the next. A SessionStart nudge reminds you
+to run `improve` when enough findings have piled up.
 
 ## Configure
 
-The first `/kentra-rpir:plan` in a project asks three questions (where change
-folders live, the issue tracker, whether to read a constitution) and writes
-`.kentra-rpir.yaml`. Missing keys take the defaults in
-[`templates/kentra-rpir.yaml`](templates/kentra-rpir.yaml): the agent and model
-per role, the question batch size, the research pool's limits and folders, the
-standalone switch, the number of milestones in progress at once, the verifier's
-cache window, and the worktree location. [`docs/process.md`](docs/process.md#kentra-rpiryaml)
+**Project.** The first stage run in a project writes `rpir/config.yaml` with a
+stable `project:` id (the directory name). The first `/kentra-rpir:plan` also asks
+three questions: the issue tracker, whether to read a constitution, and whether
+`rpir/` is committed (`track`, default yes; `track: false` gitignores all of
+`rpir/` and every stage then works untracked). Missing keys take the defaults in
+[`templates/config.yaml`](templates/config.yaml): the agent and model per role,
+the question batch size, the research pool's limits, the standalone switch, the
+number of milestones in progress at once, the verifier's cache window, the
+worktree location, and the `audit`. [`docs/process.md`](docs/process.md#rpirconfigyaml)
 explains every key.
+
+**User.** The first stage run on a machine asks four questions in one message and
+writes `${XDG_CONFIG_HOME:-~/.config}/kentra-rpir/config.yaml` from
+[`templates/user-config.yaml`](templates/user-config.yaml): record plugin
+findings from retros (default yes), nudge about them at session start (default
+no), the path of the plugin source (asked only when the nudge is on), and a
+default audit skill (default none). [`docs/process.md`](docs/process.md#the-user-config)
+describes the keys.
+
+**Audit.** Set `audit: { skill: ponytail:ponytail-audit, args: "" }` in
+`rpir/config.yaml` or the user config, and `/kentra-rpir:implement` launches that
+skill in the background on each repository when it finishes. `/kentra-rpir:review`
+applies the findings it judges worth applying and records each decision in
+`<change>/audit/<repo>.md`.
 
 ## Watching an implement run
 
@@ -182,8 +214,8 @@ background hand-off, a resume) shows the run where it is, and the
 orchestrator's every turn end checks the pane against the transcript.
 Timings come from the last session's record when there is one; a box
 the pane first learns of from the transcript counts its time from
-then. The pane finds the plan through the `.kentra-rpir/sessions.map`
-that registers the session, also when the session started in a folder
+then. The pane finds the plan through the change's `.local/sessions`
+file that registers the session, also when the session started in a folder
 above the project (a folder of several repositories). It recognises a
 dispatch by the prompt's first line; when the prompt points to a file
 instead, by that file's name (`m<n>-<slug>.lead.<k>.md`,

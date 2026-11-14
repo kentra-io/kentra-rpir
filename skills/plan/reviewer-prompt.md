@@ -4,6 +4,7 @@ Follow your agent definition's checklist for a {{mode}} review, and hand
 back in the format it gives.
 
 - Project root: `{{project_root}}`
+- Repositories: the milestones' `repo` paths from the project root, when the plan sets them
 - Tier: {{tier}}
 - Spec: `{{spec}}`
 - Plan: {{plan}}

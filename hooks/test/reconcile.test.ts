@@ -34,7 +34,7 @@ const merge = (n: number, slug: string, isError = false): TranscriptRow => ({
 })
 
 const PLAN: PlanGraph = {
-  title: 'Demo diamond', changeFolder: 'docs/changes/demo',
+  title: 'Demo diamond', changeFolder: 'rpir/changes/demo',
   milestones: [
     { number: 1, slug: 'alpha', goal: 'a', dependsOn: [] },
     { number: 2, slug: 'beta', goal: 'b', dependsOn: ['alpha'] },
@@ -49,7 +49,7 @@ const statuses = (s: RunState, now: number): string[] =>
 /** The transcript at the moment the user's session was handed off: M1 merged,
  *  M2 and M3 implemented, M3 verified and merged, M2's verifier running. */
 const HANDOFF: TranscriptRow[] = [
-  { role: 'user', text: '/kentra-rpir:implement docs/changes/demo', toolUses: [] },
+  { role: 'user', text: '/kentra-rpir:implement rpir/changes/demo', toolUses: [] },
   dispatch('implementing', 1, 'alpha', 'a1'),
   handBack('a1', 'STATUS: DONE'),
   dispatch('verifying', 1, 'alpha', 'v1'),
@@ -133,7 +133,7 @@ test('hasDispatch and dispatchedAgentIds read milestone dispatches only', () => 
 // line is not the template's, so the description and agent type identify it.
 const pointer = (n: number, slug: string, tag: 'impl' | 'verify'): string =>
   'Your dispatch prompt from the kentra-rpir orchestrator is in this file:\n\n' +
-  `/tmp/claude-uid/x/scratchpad/prompts/m${n}-${slug}.${tag}.1.md\n\n` +
+  `/tmp/x/scratchpad/prompts/m${n}-${slug}.${tag}.1.md\n\n` +
   'It is long. Read all of it before you start, in parts if you must, and follow it exactly as if it were this message.'
 const pointerDispatch = (verb: 'Implement' | 'Verify', n: number, slug: string, id: string): TranscriptRow => ({
   role: 'assistant', text: '',
@@ -152,8 +152,8 @@ const pointerDispatch = (verb: 'Implement' | 'Verify', n: number, slug: string, 
 test('parseDispatchCall falls back to the description, then the prompt file', () => {
   expect(parseDispatchCall({ prompt: prompt('verifying', 2, 'beta') })).toEqual({ number: 2, slug: 'beta', role: 'verify' })
   expect(parseDispatchCall({
-    prompt: pointer(1, 'example-milestone', 'impl'), description: 'Implement M1 example-milestone', subagentType: 'kentra-rpir:implementer',
-  })).toEqual({ number: 1, slug: 'example-milestone', role: 'impl' })
+    prompt: pointer(1, 'first-step', 'impl'), description: 'Implement M1 first-step', subagentType: 'kentra-rpir:implementer',
+  })).toEqual({ number: 1, slug: 'first-step', role: 'impl' })
   expect(parseDispatchCall({
     prompt: pointer(10, 'lib-scaffold', 'verify'), description: 'Verify M10 lib-scaffold', subagentType: 'kentra-rpir:verifier',
   })).toEqual({ number: 10, slug: 'lib-scaffold', role: 'verify' })

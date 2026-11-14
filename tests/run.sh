@@ -5,18 +5,23 @@ cd "$(dirname "$0")/.." || exit 1
 sh tests/sessions.test.sh
 sh tests/planning-log.test.sh
 sh tests/commit-change.test.sh
+sh tests/stage-start.test.sh
 sh tests/demo.test.sh
 sh tests/research-queue.test.sh
+node tests/improvements.test.mjs
+sh tests/nudge.test.sh
+sh tests/migrate-layout.test.sh
 node tests/check-workflows.mjs
 sh tests/check-templates.sh
 sh tests/check-forbidden.sh
 
-# The coarse-plan fixture needs milestoned-plan-dag 0.4.0 or later.
+# The plan fixtures need milestoned-plan-dag 0.5.0 or later.
 mpd=${MILESTONED_PLAN_DAG:-milestoned-plan-dag}
 if command -v "$mpd" >/dev/null 2>&1; then
   "$mpd" validate tests/fixtures/coarse-plan.yaml
+  "$mpd" validate tests/fixtures/multi-repo-plan.yaml
 else
-  echo "skipping coarse-plan fixture: $mpd not found"
+  echo "skipping plan fixtures: $mpd not found"
 fi
 
 # The mod: validate the plugin, then run its tests on a staged copy.

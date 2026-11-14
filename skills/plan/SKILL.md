@@ -11,8 +11,9 @@ write it down. Ask the user only about intent, never about facts you can look
 up.
 
 **Where things are:**
-- the config is `.kentra-rpir.yaml` at the project root (defaults:
-  `${CLAUDE_PLUGIN_ROOT}/templates/kentra-rpir.yaml`);
+- the config is `rpir/config.yaml` at the project root (defaults:
+  `${CLAUDE_PLUGIN_ROOT}/templates/config.yaml`);
+- change folders are `rpir/changes/<YYYY-MM-DD-slug>/`;
 - the spec template is `${CLAUDE_PLUGIN_ROOT}/templates/spec.md`;
 - the reviewer's prompt is `${CLAUDE_SKILL_DIR}/reviewer-prompt.md`;
 - research runs through the `kentra-rpir:research` skill;
@@ -20,7 +21,7 @@ up.
 - the full process is `${CLAUDE_PLUGIN_ROOT}/docs/process.md`.
 
 **Paths:** `<change>` is the change folder, `<name>` its folder name, and
-`<reviewed>` is `<project root>/.kentra-rpir/reviewed/<name>/` (gitignored),
+`<reviewed>` is `<change>/.local/reviewed/` (gitignored),
 which holds the last reviewed copy of each document.
 
 **Tiers:**
@@ -49,20 +50,27 @@ runs in the background from the first premise on.
 
 ### 1. Set up
 
-- **First use in this project** (no `.kentra-rpir.yaml`): ask these three
-  questions in one message, then write the file from the template with the
-  answers.
-  - Where should change folders live? (default `docs/changes`)
+- **Stage start.** Run
+  `sh "${CLAUDE_PLUGIN_ROOT}/scripts/stage-start.sh" "<project root>"`. On exit 3,
+  stop and relay its line. On `user-config: missing`, follow the instructions
+  it prints (the user's questions, in one message) before going on. Remember
+  its `mode:` line: on `mode: untracked`, skip every commit of the change
+  folder and say so in one line.
+- **First use in this project** (stage-start printed `config: new`): ask these
+  three questions in one message, then write `rpir/config.yaml` from the
+  template with the answers, keeping the `project:` line stage-start wrote.
   - Which issue tracker: none, GitHub or Jira?
   - Should the plan stage and its reviewer read
     `constitution/constitution.md`? Recommend yes when that file exists.
-- **Every run:** make sure `.gitignore` holds `.kentra-rpir/`, the
-  `worktreesDir` (default `.worktrees/`) and `<changesDir>/*/research/spikes/`,
-  adding whichever is missing.
+  - Should `rpir/` be committed to git (`track`, default yes)?
+- **Every run:** make sure `.gitignore` holds `rpir/**/.local/` and the
+  `worktreesDir` (default `.worktrees/`), plus `/rpir/` when `track` is
+  `false`, adding whichever is missing.
 - **An existing change** (the user names one to revise): find it — the
-  folder the user names, else the newest entry for this project in
-  `.kentra-rpir/sessions.map`, else the newest folder under `changesDir` —
-  and confirm it with the user.
+  folder the user names, else
+  `sh "${CLAUDE_PLUGIN_ROOT}/scripts/sessions.sh" current --project <project root> --session "${CLAUDE_SESSION_ID}"`
+  (the session's own change, else the newest by sessions file) — and
+  confirm it with the user.
   - A spec whose `tier` is `full` or `light` belongs to a change started
     under kentra-rpir 0.5.x, which finishes on 0.5.x. Stop and tell the
     user so.
@@ -72,10 +80,10 @@ runs in the background from the first premise on.
       when `<reviewed>` already holds copies of the documents; otherwise
       step 8;
     - `planned`: step 9.
-- **A new change:** `<changesDir>/<today>-<slug>/`, the slug 2–4 kebab-case
+- **A new change:** `rpir/changes/<today>-<slug>/`, the slug 2–4 kebab-case
   words. Copy the spec template into it as `spec.md`, with `status: draft`.
 - **Register this session:**
-  `mkdir -p .kentra-rpir && echo "${CLAUDE_SESSION_ID} <change folder> plan" >> .kentra-rpir/sessions.map`
+  `mkdir -p <change>/.local && echo "${CLAUDE_SESSION_ID} plan" >> <change>/.local/sessions`
 - **Tracker:** `github`: link the issue the user names, or create one with
   `gh issue create`; `jira`: link the key the user gives. Put the link in the
   frontmatter `issue:`.
@@ -124,6 +132,12 @@ a spike and its advisor. A normal premise gets a docs check only. Official
 docs or source code at the version in question settle a premise on their
 own.
 
+> A premise about something this session does not own — a remote, a
+> registry, CI, another repository, a deployed service, another team's
+> documents — is settled by reading it at its source. A local copy, a
+> cache or an earlier conversation is a snapshot of it, not the thing.
+> The Evidence names what was read and when.
+
 Settle a premise yourself only when it is about this repo's own code, or
 when it is normal and a read or two of an official doc page settles it. Its
 Evidence is then `docs: <URL or file:line@version>`.
@@ -134,7 +148,9 @@ update the premise's row:
 - **Status** from the Verdict.
 - **Evidence:** a link to the report, `[research/<slug>.md](research/<slug>.md)`,
   then the source kinds from its "Rests on" line. A row reused from the
-  research index links the report the index row names.
+  research index links the report the index row names. A row states only
+  what was tested, and adds `untested: <part>` for each part its report
+  names as untested or inferred.
 - A **refuted** premise goes to the user at once: it usually changes the
   design.
 - A **critical** premise left `unverified` goes to the user as a decision:
@@ -163,15 +179,24 @@ spec through step 4 and the review.
 ### 7. Write `plan.yaml`
 
 1. Run `milestoned-plan-dag --version`. When it is missing, stop and tell
-   the user: `kentra-rpir needs milestoned-plan-dag 0.4.0 or later: brew upgrade kentra-io/tap/milestoned-plan-dag`.
-   When `validate` later rejects `schemaVersion: 0.4.0`, stop with the same
+   the user: `kentra-rpir needs milestoned-plan-dag 0.5.0 or later: brew upgrade kentra-io/tap/milestoned-plan-dag`.
+   When `validate` later rejects `schemaVersion: 0.5.0`, stop with the same
    message.
 2. Load `milestoned-plan-dag:plan-author` for the format. Plans here use
-   schema 0.4.0, which has no `steps`. When the loaded skill documents an
-   older schema or asks for steps, tell the user once to run
+   schema 0.5.0, which has no `steps`. When the loaded skill documents a
+   schema older than 0.5.0 or asks for steps, tell the user once to run
    `claude plugin update milestoned-plan-dag@kentra-agentic-plugins`, and
-   follow `validate`.
-3. Write `<change>/plan.yaml` yourself.
+   follow `validate`. Pin the `# yaml-language-server: $schema=` line to
+   `v0.5.0`.
+3. Before writing any milestone's `paths`, grep the milestone's base for every
+   reader of each symbol, flag, file, option or rule the milestone changes:
+   tests, fixtures, docs, generators. Each reader is in `paths`, or named in
+   a risk that says why it stays green.
+   A change spanning several repositories sets `repo` on every milestone (its
+   path from the project root, e.g. `.` or `../other`), writes that
+   milestone's `paths` and `check` relative to its repository, and greps at
+   that repository's base.
+4. Write `<change>/plan.yaml` yourself.
 
 **Milestones.** A milestone is a deliverable a reviewer could merge on its
 own: one component, or one capability that can be checked on its own. Split
@@ -279,9 +304,10 @@ When unsure, run a diff review. Dispatch a fresh reviewer as in step 8 with
 `mode` `diff`, the `decision` in plain words, and `diff_commands`: one
 `git diff --no-index "<reviewed>/<file>" "<change>/<file>"` per changed
 document (once committed: `git diff <last commit of the file> -- <file>`).
-Then copy the edited documents into `<reviewed>` again, show the user the
-diff, and act on the hand-back as in step 8: technical fixes, decisions and
-unchecked claims.
+When it hands back, copy the edited documents into `<reviewed>` again, show
+the user the diff, and act on the hand-back as in step 8: technical fixes,
+decisions and unchecked claims. An edit made while a diff review runs gets
+its own diff review once that one hands back.
 
 Once the spec is `agreed`, its status stays `agreed` through every edit.
 
@@ -290,8 +316,11 @@ Once the spec is `agreed`, its status stays `agreed` through every edit.
 The user approves the plan; at the small tier, the reviewed spec. Then:
 
 1. Make sure Open questions is empty and every premise has a status. Wait
-   for running research jobs of this change, or tell the user which you
-   drop.
+   for running research jobs and diff reviews of this change, or tell the
+   user which you drop. When the user approves with an edit still
+   unreviewed, add `unreviewed: <edit>, approved by the user <date>` to the
+   spec's `<!-- writer-gaps -->` block. This step runs whether or not the
+   change folder is tracked.
 2. Set the spec's `status: planned`.
 3. Write the planning log:
    `sh "${CLAUDE_PLUGIN_ROOT}/scripts/planning-log.sh" --project "$(git rev-parse --show-toplevel)" --change "<change folder>" --out "<change folder>/planning-log.jsonl"`.
@@ -299,10 +328,11 @@ The user approves the plan; at the small tier, the reviewed spec. Then:
    commit anyway.
 4. Commit the change folder (spec, plan, planning log and research reports)
    with
-   `sh "${CLAUDE_PLUGIN_ROOT}/scripts/commit-change.sh" <change folder> "plan: <title>" [<research.index> .kentra-rpir.yaml .gitignore]`,
-   passing as extra paths the `research.index` file when this session's
-   research jobs appended to it, and `.kentra-rpir.yaml` and `.gitignore`
-   when this session created or changed them.
+   `sh "${CLAUDE_PLUGIN_ROOT}/scripts/commit-change.sh" <change folder> "plan: <title>" [rpir/research/index.jsonl rpir/config.yaml .gitignore]`,
+   passing as extra paths `rpir/research/index.jsonl` when this session's
+   research jobs appended to it, and `rpir/config.yaml` and `.gitignore`
+   when this session created or changed them. In untracked mode the script
+   prints that it skipped the commit.
 
 A later revision of an approved change goes through step 9 and commits the
 same way, with the message `plan: amend <title>`.

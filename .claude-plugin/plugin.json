@@ -1,7 +1,7 @@
 {
   "name": "kentra-rpir",
-  "description": "Runs one change (feature, bug or chore) through plan, implement and review. One planning session writes the spec and a coarse milestoned-plan-dag plan, with premises researched in the background by a session research pool and one joint review of spec and plan. Opus milestone leads brief fresh Sonnet implementers in parallel worktrees, a fresh verifier checks each milestone, and a retro reads the session transcripts.",
-  "version": "0.6.2",
+  "description": "Runs one change (feature, bug or chore) through plan, implement and review. One planning session writes the spec and a coarse milestoned-plan-dag plan, with premises researched in the background by a session research pool and one joint review of spec and plan. Opus milestone leads brief fresh Sonnet implementers in parallel worktrees, a fresh verifier checks each milestone, and a retro reads the session transcripts and records its findings in two registries. The improve and improve-plugin skills rank those findings and carry out the ones the user accepts, and an optional audit skill runs on each repository after implement.",
+  "version": "0.7.0",
   "author": { "name": "Kentra" },
   "homepage": "https://github.com/kentra-io/kentra-rpir",
   "repository": "https://github.com/kentra-io/kentra-rpir",

@@ -12,7 +12,7 @@
 # writes <file>.tmp, renames it to <file> only on success, removes the .tmp on
 # failure.
 #
-# Exit: 0 written; 2 usage error, no planning session in the map, a jq
+# Exit: 0 written; 2 usage error, no planning session in the sessions file, a jq
 #       failure while building the log, or a redaction failure (nothing is
 #       written in any of these cases); 3 written, with at least one
 #       transcript missing; 4 jq not found.

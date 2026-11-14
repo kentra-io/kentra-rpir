@@ -68,16 +68,6 @@ Orchestrator: <n> fresh tokens · <m> min wall. Fresh tokens = input + cache wri
 
 - <What to keep, so that a fix does not undo it.>
 
-## Actions
-
-| Finding | Action | Target | Detail | Decision |
-|---|---|---|---|---|
-| F1 | diff · eval case · automated check · no action | <file, or kentra-io/kentra-rpir> | <before/after, eval prompt + fixture + pass condition, check, or reasoning> | <filled at review: applied <commit> · filed <issue url> · deferred · rejected — reason> |
-
-## Recurring
-
-<Fault classes and findings also seen in earlier retros, with links.>
-
 ## Open questions
 
 - <What the evidence could not settle.>

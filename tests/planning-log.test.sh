@@ -22,9 +22,9 @@ root=$(mktemp -d "${TMPDIR:-/tmp}/rpir-planning-log.XXXXXX")
 trap 'rm -rf "$root"' EXIT
 export CLAUDE_CONFIG_DIR="$root/claude"
 
-register() { # register <project> <sid> <change> <stage>
-  mkdir -p "$1/.kentra-rpir"
-  printf '%s %s %s\n' "$2" "$3" "$4" >> "$1/.kentra-rpir/sessions.map"
+register() { # register <project> <sid> <change folder> <stage>
+  mkdir -p "$1/$3/.local"
+  printf '%s %s\n' "$2" "$4" >> "$1/$3/.local/sessions"
 }
 transcript_path() { # transcript_path <project> <sid> -> prints the path a direct slug lookup would use
   slug=$(printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g')
@@ -37,7 +37,7 @@ transcript_path() { # transcript_path <project> <sid> -> prints the path a direc
 # =========================================================================
 
 projA="$root/projA"
-changeA=docs/changes/2026-10-11-demoA
+changeA=rpir/changes/2026-10-11-demoA
 sidMain=aaaaaaaa-1111-1111-1111-111111111111
 register "$projA" "$sidMain" "$changeA" plan
 tA=$(transcript_path "$projA" "$sidMain")
@@ -130,11 +130,11 @@ check "input_tokens numeric value left untouched" grep -qF 'input_tokens\":123' 
 check "plain text kept" grep -q 'plain text stays' "$outA"
 
 # =========================================================================
-# Scenario B: session grouping and ordering across the map.
+# Scenario B: session grouping and ordering across the sessions file.
 # =========================================================================
 
 projB="$root/projB"
-changeB=docs/changes/2026-10-11-demoB
+changeB=rpir/changes/2026-10-11-demoB
 sidX=bbbbbbbb-1111-1111-1111-111111111111
 sidY=bbbbbbbb-2222-2222-2222-222222222222
 sidZ=bbbbbbbb-3333-3333-3333-333333333333
@@ -160,7 +160,7 @@ rcB=$?
 checkeq "scenario B exits 0" "$rcB" "0"
 
 ids=$(jq -r 'select(.kind=="session") | .id' "$outB")
-checkeq "two single-stage sessions (one an older spec) + one dual-stage session, in map order" \
+checkeq "two single-stage sessions (one an older spec) + one dual-stage session, in file order" \
   "$ids" "$(printf '%s\n%s\n%s' "$sidX" "$sidY" "$sidZ")"
 checkeq "a plan session is included" "$(jq -r --arg id "$sidX" 'select(.kind=="session" and .id==$id) | .stages' "$outB")" "plan"
 checkeq "an old spec-stage session is included" "$(jq -r --arg id "$sidY" 'select(.kind=="session" and .id==$id) | .stages' "$outB")" "spec"
@@ -174,7 +174,7 @@ checkeq "an implement-only session is not included" "$(jq -r --arg id "$sidV" 's
 # =========================================================================
 
 projC="$root/projC"
-changeC=docs/changes/2026-10-11-demoC
+changeC=rpir/changes/2026-10-11-demoC
 sidMissing=cccccccc-1111-1111-1111-111111111111
 sidOk=cccccccc-2222-2222-2222-222222222222
 
@@ -202,8 +202,8 @@ check "scenario C: no .tmp left behind" test ! -e "$outC.tmp"
 # =========================================================================
 
 projD="$root/projD"
-changeD=docs/changes/2026-10-11-demoD
-mkdir -p "$projD/$changeD" "$projD/.kentra-rpir"
+changeD=rpir/changes/2026-10-11-demoD
+mkdir -p "$projD/$changeD"
 sidReviewOnly=dddddddd-1111-1111-1111-111111111111
 register "$projD" "$sidReviewOnly" "$changeD" review
 
@@ -215,14 +215,14 @@ checkeq "scenario D: error names the missing planning session" "$errD" "kentra-r
 check "scenario D: no file written" test ! -e "$outD"
 check "scenario D: no .tmp left behind" test ! -e "$outD.tmp"
 
-# Also: no sessions.map at all.
+# Also: no sessions file at all.
 projD2="$root/projD2"
-changeD2=docs/changes/2026-10-11-demoD2
+changeD2=rpir/changes/2026-10-11-demoD2
 mkdir -p "$projD2/$changeD2"
 outD2="$projD2/$changeD2/planning-log.jsonl"
 sh "$script" --project "$projD2" --change "$changeD2" --out "$outD2" >/dev/null 2>&1
 rcD2=$?
-checkeq "scenario D2 (no map at all) exits 2" "$rcD2" "2"
+checkeq "scenario D2 (no sessions file at all) exits 2" "$rcD2" "2"
 check "scenario D2: no file written" test ! -e "$outD2"
 check "scenario D2: no .tmp left behind" test ! -e "$outD2.tmp"
 
@@ -255,7 +255,7 @@ SHIMEOF
 chmod +x "$shimdir/jq"
 
 projE="$root/projE"
-changeE=docs/changes/2026-10-11-demoE
+changeE=rpir/changes/2026-10-11-demoE
 sidE=eeeeeeee-1111-1111-1111-111111111111
 register "$projE" "$sidE" "$changeE" plan
 tE=$(transcript_path "$projE" "$sidE")
@@ -278,7 +278,7 @@ check "scenario E: no .tmp left behind" test ! -e "$outE.tmp"
 # =========================================================================
 
 projF="$root/projF"
-changeF=docs/changes/2026-10-11-demoF
+changeF=rpir/changes/2026-10-11-demoF
 sidF=ffffffff-1111-1111-1111-111111111111
 register "$projF" "$sidF" "$changeF" plan
 tF=$(transcript_path "$projF" "$sidF")

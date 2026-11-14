@@ -11,35 +11,45 @@ background children report to the main session, never to the subagent. Never
 hand the pool to a subagent. The conversation goes on while jobs run.
 
 **Where things are:**
-- the config is `.kentra-rpir.yaml` at the project root (defaults:
-  `${CLAUDE_PLUGIN_ROOT}/templates/kentra-rpir.yaml`), keys under `research:`;
-- the queue is `sh "${CLAUDE_PLUGIN_ROOT}/scripts/research-queue.sh"`, called
-  **Queue** below. Pass `--session ${CLAUDE_SESSION_ID}` on every call;
+- the config is `rpir/config.yaml` at the project root (defaults:
+  `${CLAUDE_PLUGIN_ROOT}/templates/config.yaml`), keys under `research:`;
+- the index is `rpir/research/index.jsonl`; outside a change, reports go to
+  `rpir/research/`;
+- inside a change, the queue (`research-queue.tsv`) and spikes live in
+  `<change>/.local/`; outside one, in `rpir/research/.local/`;
+- the queue is the script `research-queue.sh`; each use below is one complete
+  command line. Run it exactly as written, never storing the command or the
+  script path in a shell variable or alias;
 - the report shape is under "Report" in `${CLAUDE_PLUGIN_ROOT}/agents/researcher.md`.
 
 ## 1. Set up (once per session)
 
-1. **Find the rpir change.** Look up this session in
-   `.kentra-rpir/sessions.map`: the last line starting with
-   `${CLAUDE_SESSION_ID}` gives the change folder and stage. A line there, or
-   a calling kentra-rpir stage skill, means you are inside an rpir change.
-2. **Standalone switch.** Outside an rpir change, when `research.standalone`
+1. **Stage start.** Run
+   `sh "${CLAUDE_PLUGIN_ROOT}/scripts/stage-start.sh" "<project root>"`. On exit 3,
+   stop and relay its line. On `user-config: missing`, follow the
+   instructions it prints (the user's questions, in one message) before going
+   on.
+2. **Find the rpir change.** A calling kentra-rpir stage skill names it;
+   otherwise run
+   `sh "${CLAUDE_PLUGIN_ROOT}/scripts/sessions.sh" current --project <project root> --session "${CLAUDE_SESSION_ID}"`
+   and take its output only when this session appears in that change's
+   `.local/sessions`. Otherwise you are outside an rpir change.
+3. **Standalone switch.** Outside an rpir change, when `research.standalone`
    is `false`, stop: tell the user the pool is off outside rpir stages and
    run nothing.
-3. **Report dir.** Inside a change, reports go to `<change folder>/research/`
-   and spikes to `<change folder>/research/spikes/`. Outside one, reports go
-   to `research.dir` and spikes to `<research.dir>/spikes/`. Create both with
-   `mkdir -p`, and the index file's directory too.
-4. **Gitignore.** Make sure `.gitignore` holds `.kentra-rpir/` (the queue
-   lives there) and the spikes folder (`<changesDir>/*/research/spikes/`, or
-   `<research.dir>/spikes/`), adding whichever is missing. Spike files never
-   reach git; reports and the index can.
+4. **Report dir.** Inside a change, reports go to `<change folder>/research/`
+   and spikes to `<change folder>/.local/spikes/`. Outside one, reports go to
+   `rpir/research/` and spikes to `rpir/research/.local/spikes/`. Create both
+   with `mkdir -p`.
+5. **Gitignore.** Make sure `.gitignore` holds `rpir/**/.local/`, adding it
+   when missing. Spike files and the queue never reach git; reports and the
+   index can.
 
 ## 2. Intake: check the index, size, queue
 
 For each question, in turn:
 
-1. **Check the index** (`research.index`, JSONL). Grep it for the subject's
+1. **Check the index** (`rpir/research/index.jsonl`). Grep it for the subject's
    name and read the matching rows. A row is identified by its `claim` plus
    its `subject` (`<name>@<version>`). When several rows share both, the last
    one supersedes the earlier ones.
@@ -67,11 +77,11 @@ For each question, in turn:
    experiments. Official docs or source code at the version in question
    settle a premise on their own.
 3. **Queue it:**
-   `Queue add --dir <absolute report dir> <fact|premise|survey> <slug> "<question>"`.
+   `sh "${CLAUDE_PLUGIN_ROOT}/scripts/research-queue.sh" add [--change <change folder>] --dir <absolute report dir> <fact|premise|survey> <slug> "<question>"`.
    - The slug is 2–5 kebab-case words.
    - The question is one line: the claim or question with its version, then
      ` — ` and why the work depends on it. A premise's question starts with
-     `critical:` or `normal:`.
+     `critical:` or `normal:`; the script refuses (exit 2) one without.
    - `add` prints the job id and its report path. The path is free: a taken
      slug gets a numeric suffix (`-2`, `-3`), so a report is never
      overwritten.
@@ -80,7 +90,7 @@ Then start jobs (step 3).
 
 ## 3. Start jobs
 
-Run `Queue next --max <research.maxParallel> --stale <research.staleMinutes>`
+Run `sh "${CLAUDE_PLUGIN_ROOT}/scripts/research-queue.sh" next [--change <change folder>] --max <research.maxParallel> --stale <research.staleMinutes>`
 until it prints no `start` line. Each line is tab-separated:
 
 - `start <id> <kind> <report> <question>`: dispatch the job now.
@@ -97,8 +107,8 @@ any suffix `add` gave it), and this prompt:
 Research job <id> (<kind>). Today is <YYYY-MM-DD>.
 Question: <question>
 Report: write it to <absolute report path>.
-Index: append your row to <absolute research.index path>.
-Spike folder: <absolute spikes dir>/<report file name without .md>/   (premise only)
+Index: append your row to <absolute path of rpir/research/index.jsonl>.
+Spike folder: <absolute spikes dir (<change>/.local/spikes or rpir/research/.local/spikes)>/<report file name without .md>/   (premise only)
 Lookups: run at most <research.maxLookups> at once.   (premise and survey)
 Context: <what the work is, and anything the agent cannot find by reading: decisions already taken, the versions pinned>
 ```
@@ -112,7 +122,7 @@ Several jobs started at once are dispatched in one message.
 
 When a job's completion notification arrives:
 
-1. `Queue done <id> --agent <the job's agent id>`.
+1. `sh "${CLAUDE_PLUGIN_ROOT}/scripts/research-queue.sh" done [--change <change folder>] <id> --agent <the job's agent id>`.
 2. **Read only the Conclusion.** A premise or survey job's final message is
    its report's Conclusion section. Read that; leave the report file closed
    unless the Conclusion leaves you unable to act.
@@ -138,7 +148,7 @@ earlier job's id in its question. When `next` starts it, route it:
 
 - **Same agent.** When the earlier job is `done` (its agent is idle) and its
   `finished` time is less than 5 minutes ago (`date +%s` minus the
-  `finished` column of `Queue list`), send the follow-up to that agent with
+  `finished` column of `sh "${CLAUDE_PLUGIN_ROOT}/scripts/research-queue.sh" list [--change <change folder>]`), send the follow-up to that agent with
   SendMessage: the question, and the new report path. Its prompt cache is
   still warm.
 - **Fresh agent.** Otherwise dispatch a fresh job as in step 3, naming the

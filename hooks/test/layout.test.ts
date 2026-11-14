@@ -75,6 +75,13 @@ function checkGraph(ms: PlanMilestone[], views: Record<string, MilestoneView>, w
   return { rows, lanes }
 }
 
+test('goal row leads with the repo when set', () => {
+  const ms = [{ ...m(1, 'f'), repo: '../shared' }, m(2, 'g')]
+  const goal = (slug: string) => layoutGraph(ms, {}, 60).filter((r) => r.slug === slug)[1].body
+  expect(goal('f')).toContain('../shared · ')
+  expect(goal('g')).not.toContain('·')
+})
+
 test('chain diamond and crossing DAG at three widths', () => {
   for (const width of [40, 60, 100]) {
     checkGraph(CHAIN, {}, width)

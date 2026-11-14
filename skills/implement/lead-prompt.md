@@ -4,6 +4,8 @@ You are leading milestone M{{number}} `{{slug}}` of the change "{{title}}".
 `{{base}}`. Start every shell command with `cd {{worktree}} &&`, and give
 every file tool and every brief an absolute path under it.
 
+{{repo}}
+
 The spec is `{{spec}}`. Read the sections this milestone needs: Layout,
 Abstractions, the requirements it builds, the Design decisions it follows.
 

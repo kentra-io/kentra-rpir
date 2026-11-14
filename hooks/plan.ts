@@ -2,7 +2,11 @@ import type { EngineInterface } from 'claude-code'
 import type { PlanGraph, PlanMilestone } from '../types'
 import { load } from './vendor/js-yaml.mjs'
 
-const SESSIONS_MAP = '.kentra-rpir/sessions.map'
+/** `repo` is milestoned-plan-dag 0.5.0's optional milestone field; types/index.d.ts does not declare it. */
+export type RepoMilestone = PlanMilestone & { repo?: string }
+
+const CHANGES_DIR = 'rpir/changes'
+const SESSIONS_GLOB = 'rpir/changes/*/.local/sessions'
 
 /** The first line of a message, trimmed; every error this module makes is one line. */
 function oneLine(text: string): string {
@@ -25,25 +29,31 @@ function basename(folder: string): string {
   return parts[parts.length - 1] || folder
 }
 
-export function findChangeFolder(sessionsMap: string, sessionId: string): string | null {
-  let found: string | null = null
-  for (const raw of sessionsMap.split('\n')) {
-    const fields = raw.replace(/\r$/, '').trim().split(/\s+/)
-    if (fields.length < 2) continue
-    const [id, folder, stage] = fields
-    if (id === sessionId && stage === 'implement' && folder) found = folder
-  }
-  return found
+/** One change folder's machine-local state: its `.local/sessions` text and mtime, and whether `.local/implement-state.json` exists. */
+export type ChangeState = { folder: string; sessions: string; hasImplementState: boolean; sessionsMtimeMs: number }
+
+function hasImplementLine(sessions: string, sessionId?: string): boolean {
+  return sessions.split('\n').some((raw) => {
+    const [id, stage] = raw.trim().split(/\s+/)
+    return stage === 'implement' && (sessionId === undefined || id === sessionId)
+  })
 }
 
-/** The change folder of the last `implement` line in sessions.map, any session. */
-export function newestImplementFolder(sessionsMap: string): string | null {
-  let found: string | null = null
-  for (const raw of sessionsMap.split('\n')) {
-    const [, folder, stage] = raw.replace(/\r$/, '').trim().split(/\s+/)
-    if (stage === 'implement' && folder) found = folder
-  }
-  return found
+/** The newest sessions file wins; the folder name breaks ties. */
+function newest(list: readonly ChangeState[]): string | null {
+  const sorted = [...list].sort((a, b) => a.sessionsMtimeMs - b.sessionsMtimeMs || (a.folder < b.folder ? -1 : 1))
+  return sorted.pop()?.folder ?? null
+}
+
+/** The change whose sessions file has `<sessionId> implement`; the one with the newest sessions file if several. */
+export function findChangeFolder(changes: readonly ChangeState[], sessionId: string): string | null {
+  return newest(changes.filter((c) => hasImplementLine(c.sessions, sessionId)))
+}
+
+/** The unfinished implementation (implement-state.json), else the change with any implement line; the newest sessions file wins within each. */
+export function newestImplementFolder(changes: readonly ChangeState[]): string | null {
+  const withImplement = changes.filter((c) => hasImplementLine(c.sessions))
+  return newest(withImplement.filter((c) => c.hasImplementState)) ?? newest(withImplement)
 }
 
 // A backticked path is taken whole (the templates put the worktree in
@@ -124,7 +134,7 @@ export function parsePlanYaml(text: string, title: string, changeFolder: string)
   }
   const raw = doc !== null && typeof doc === 'object' ? (doc as Record<string, unknown>).milestones : undefined
   if (!Array.isArray(raw) || raw.length === 0) throw new Error('plan.yaml has no milestones')
-  const milestones: PlanMilestone[] = raw.map((item: unknown, i: number) => {
+  const milestones: RepoMilestone[] = raw.map((item: unknown, i: number) => {
     const m = (item !== null && typeof item === 'object' ? item : {}) as Record<string, unknown>
     const number = m.number
     if (typeof number !== 'number' || !Number.isInteger(number)) {
@@ -137,13 +147,38 @@ export function parsePlanYaml(text: string, title: string, changeFolder: string)
     const slug = typeof m.slug === 'string' && m.slug !== '' ? m.slug : deriveSlug(goal)
     const deps = m['depends-on']
     const dependsOn = Array.isArray(deps) ? deps.map(d => String(d)) : []
-    return { number, slug, goal: oneLine(goal), dependsOn }
+    const repo = typeof m.repo === 'string' && m.repo !== '' ? { repo: m.repo } : {}
+    return { number, slug, goal: oneLine(goal), dependsOn, ...repo }
   })
   milestones.sort((a, b) => a.number - b.number)
   return { title, changeFolder, milestones }
 }
 
-/** The project whose sessions.map registers this session's implement run,
+async function readChanges($: EngineInterface, root: string): Promise<ChangeState[]> {
+  let names: string[]
+  try {
+    names = (await $.fs.list(joinPath(root, CHANGES_DIR))).filter((e) => e.kind === 'dir').map((e) => e.name)
+  } catch {
+    return []
+  }
+  const changes: ChangeState[] = []
+  for (const name of names) {
+    const folder = `${CHANGES_DIR}/${name}`
+    let sessions: string
+    try {
+      sessions = await $.fs.read(joinPath(root, `${folder}/.local/sessions`))
+    } catch {
+      continue
+    }
+    const hasImplementState = await $.fs.read(joinPath(root, `${folder}/.local/implement-state.json`)).then(() => true, () => false)
+    const listing = await $.fs.list(joinPath(root, `${folder}/.local`)).catch(() => [])
+    const sessionsMtimeMs = listing.find((e) => e.name === 'sessions')?.mtimeMs ?? 0
+    changes.push({ folder, sessions, hasImplementState, sessionsMtimeMs })
+  }
+  return changes
+}
+
+/** The project whose change folders register this session's implement run,
  *  else the first candidate with any implement run, else null. */
 export async function findProject(
   $: EngineInterface,
@@ -152,17 +187,12 @@ export async function findProject(
 ): Promise<{ root: string; folder: string } | null> {
   let fallback: { root: string; folder: string } | null = null
   for (const root of candidates) {
-    let map: string
-    try {
-      map = await $.fs.read(joinPath(root, SESSIONS_MAP))
-    } catch {
-      continue
-    }
-    const own = findChangeFolder(map, sessionId)
+    const changes = await readChanges($, root)
+    const own = findChangeFolder(changes, sessionId)
     if (own !== null) return { root, folder: own }
-    // A session continued under a new id is in the map only once the
-    // orchestrator registers it again: fall back to the newest implement run.
-    const newest = newestImplementFolder(map)
+    // A session continued under a new id is registered only once the
+    // orchestrator registers it again: fall back to the unfinished implement run.
+    const newest = newestImplementFolder(changes)
     if (fallback === null && newest !== null) fallback = { root, folder: newest }
   }
   return fallback
@@ -184,7 +214,7 @@ export async function loadPlan(
     const candidates = candidateRoots(root, hints, children)
     const found = await findProject($, sessionId, candidates)
     if (found === null) {
-      return { plan: null, error: `no implement run in ${SESSIONS_MAP} under ${candidates[0]} or the dispatches' paths` }
+      return { plan: null, error: `no implement run in ${SESSIONS_GLOB} under ${candidates[0]} or the dispatches' paths` }
     }
     const { root: project, folder } = found
     const dir = folder.replace(/\/+$/, '')

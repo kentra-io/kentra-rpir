@@ -41,7 +41,7 @@ const bash = (command: string, at: number, isError = false): TrackerEvent =>
 function planOf(ms: Array<[number, string, string[]]>): PlanGraph {
   return {
     title: 'T',
-    changeFolder: 'docs/changes/x',
+    changeFolder: 'rpir/changes/x',
     milestones: ms.map(([number, slug, dependsOn]) => ({ number, slug, goal: `goal ${slug}`, dependsOn })),
   }
 }
@@ -212,9 +212,9 @@ test('non-milestone dispatch is ignored', () => {
 })
 
 test('no plan still tracks dispatches', () => {
-  let s = withPlan(null, 'no implement entry for this session in .kentra-rpir/sessions.map')
+  let s = withPlan(null, 'no implement entry for this session in rpir/changes/*/.local/sessions')
   s = apply(s, [spawn('i1', implPrompt(1, 'a'), 0), spawn('i2', implPrompt(2, 'b'), 100)])
-  expect(s.planError).toBe('no implement entry for this session in .kentra-rpir/sessions.map')
+  expect(s.planError).toBe('no implement entry for this session in rpir/changes/*/.local/sessions')
   expect(countByStatus(s, 1000)).toEqual({
     waiting: 0, ready: 0, implementing: 2, implemented: 0, verifying: 0, verified: 0,
     failed: 0, fixing: 0, passed: 0, merged: 0, stuck: 0,

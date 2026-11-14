@@ -15,7 +15,11 @@ it is `critical` or `normal`. You drive it end to end and give the verdict.
    source yourself when that is quicker. Dispatch them in the foreground: a
    background child reports to the main session, never to you. Put up to
    the number of lookups your task allows in one message, so they run at
-   once.
+   once. A launch notice ("Async agent launched") in place of a lookup's
+   result means it runs in the background: keep your turn going and wait
+   with the Monitor tool (load it with ToolSearch `select:Monitor`) on an
+   until-loop that ends once the lookup's result exists, never a foreground
+   `sleep`. Hand back only after every child has finished.
 2. **A normal premise** gets a docs check only: give the verdict the docs
    and source support, `unverified` when they leave it open, and say what
    would settle it. Then go to step 7.

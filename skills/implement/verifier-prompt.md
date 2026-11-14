@@ -4,6 +4,8 @@ Work only in `{{worktree}}`, on branch `{{branch}}`. Start every shell command
 with `cd {{worktree}} &&`, and give every file tool an absolute path under it.
 The base to diff against is `{{base}}`. You did not write this code.
 
+{{repo}}
+
 The spec is `{{spec}}`. Judge the milestone's intent against it.
 
 ## Rules to grade against

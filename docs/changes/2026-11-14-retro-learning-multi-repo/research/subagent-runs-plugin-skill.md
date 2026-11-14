@@ -1,0 +1,18 @@
+# A background subagent can run another plugin's skill via the Skill tool and return its report
+
+## Conclusion
+
+- **Answer:** Yes for (a): a background general-purpose subagent called `Skill ponytail:ponytail-audit`, ran the audit and returned the report; docs say plugin-defined agents with `Skill` in their tools can do the same. (b) ponytail-audit has no `context: fork`; forked skills run their own subagent, background by default, and the docs say the result arrives in the main conversation (not shown to reach a calling subagent). (c) The Skill tool reaches skills, plus `/init` and `/security-review` among built-ins; commands are merged into skills, so a `commands/` file works like a skill, but a plugin `commands/` dir is not documented. (d) `disable-model-invocation: true` skills cannot be invoked by Claude, so a subagent cannot run them.
+- **Verdict:** verified
+- **Confidence:** high
+- **Rests on:** experiment (Claude Code 2.1.325, macOS, ponytail 5.3.3, two haiku general-purpose subagents, both recorded in transcripts with requestShape "background"), official docs (code.claude.com sub-agents.md and skills.md, undated, current in Nov 2026)
+- **Size:** one premise with four sub-questions; only (a) was tested, (b) to (d) rest on docs.
+
+Caveats: not run: `kentra-rpir:lead` (its tools are "All tools", so Skill should be available), a `context: fork` skill called from a subagent, a `disable-model-invocation` skill, a slash command. The runs were nested (spike was itself a background subagent, spawnDepth 2) and used haiku, with ponytail's SubagentStart hook adding its mode text. The report reached the caller as the final message in one run (audit text returned in the hand-back) and via a file the agent wrote in the other; tell the agent in the prompt to reply with the report text. Advisor (opus): the premise holds; read transcripts showing `Skill {"skill":"ponytail:ponytail-audit"}` then `Launching skill: ponytail:ponytail-audit`; flagged that both runs were background (no foreground contrast), the disable-model-invocation quote concerns preloading only (skills.md text on the field is the right source), and the untested gaps above.
+
+## References
+
+- [experiment] Two Agent dispatches (general-purpose, haiku) told to call Skill ponytail:ponytail-audit on scratch/app.py; spike folder `.../spikes/subagent-runs-plugin-skill/` — bg-result.txt first line "SKILL_TOOL_OK", followed by a 2-finding audit ("Must fix: 1. Dividing by zero crashes ... 2. A password is written in the code")
+- [source code] `~/.claude/plugins/cache/*/ponytail*/5.3.3/skills/ponytail-audit/SKILL.md` frontmatter — only `name` and `description`; no `context`, no `disable-model-invocation`
+- [official docs] Anthropic, undated — https://code.claude.com/docs/en/sub-agents.md — "Subagents can still invoke unlisted project, user, and plugin skills through the Skill tool"; "a background subagent keeps every MCP tool but only these built-in tools: ... `Skill`, `ToolSearch`"
+- [official docs] Anthropic, undated — https://code.claude.com/docs/en/skills.md — "`disable-model-invocation: true`: Claude can't invoke the skill on its own."; "A few built-in commands are also available through the Skill tool, including `/init` and `/security-review`. Other built-in commands such as `/compact` are not."; "A file at `.claude/commands/deploy.md` and a skill at `.claude/skills/deploy/SKILL.md` both create `/deploy` and work the same way."; "The forked subagent runs in the background ... its result arrives in your conversation when it completes. Set `background: false` ... to instead wait for the result"

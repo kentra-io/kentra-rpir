@@ -34,6 +34,10 @@ the sources.
   with the Skill tool). Find the touched files from the spec's Layout and
   Design, and the plan's deliverables and paths.
 
+- **Repositories.** When the plan sets `repo` on its milestones, each
+  milestone's repository is that path from the project root, its base is
+  that repository's current branch, and P2, P11 and D5 run there.
+
 ## Full review
 
 Answer every check. At the small tier there is no plan: answer the S and R
@@ -74,7 +78,9 @@ checks only.
 - **P1 Coverage.** Every spec requirement is covered by at least one
   milestone criterion.
 - **P2** Each milestone's criteria can be met by changes inside its own
-  `paths`, using only what its `depends-on` milestones produce.
+  `paths`, using only what its `depends-on` milestones produce. A reader of
+  what the milestone changes that is neither in its `paths` nor in a risk
+  fails it.
 - **P3** Every interface used across milestones is named, with its
   responsibility, in the milestone that provides it and in each milestone
   that uses it, and matches the spec's Abstractions.

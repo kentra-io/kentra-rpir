@@ -12,23 +12,34 @@ A change runs through three stages, each a skill run in the main session:
 |---|---|---|
 | [plan](#stage-1-plan) | `kentra-rpir:plan` | `spec.md`, and at the standard tier `plan.yaml` |
 | [implement](#stage-2-implement) | `kentra-rpir:implement` | the code, on an integration branch, and `impl-report.md` |
-| [review](#stage-3-review) | `kentra-rpir:review` | `spec-retro.md` |
+| [review](#stage-3-review) | `kentra-rpir:review` | `spec-retro.md`, and findings in the [registries](#improvements) |
 
 Research runs beside them as a [session pool](#research-pool), through the
-`kentra-rpir:research` skill.
+`kentra-rpir:research` skill. Two more skills, `kentra-rpir:improve` and
+`kentra-rpir:improve-plugin`, work through the [improvements](#improvements) that
+retros recorded.
 
 **Requirements.**
-- `milestoned-plan-dag` 0.4.0 or later. Plans use its schema 0.4.0, which has no
-  `steps`. The plan and implement stages stop with
+- `milestoned-plan-dag` 0.5.0 or later. Plans use its schema 0.5.0, which has no
+  `steps` and adds the milestone field `repo` for [multi-repository
+  plans](#multi-repository-plans). The plan and implement stages stop with
   `brew upgrade kentra-io/tap/milestoned-plan-dag` when the CLI is missing or
-  rejects `schemaVersion: 0.4.0`.
+  rejects `schemaVersion: 0.5.0`. The 0.5.0 binary reads no older plan.
 - `jq` 1.6 or later, for the planning log.
+- `node` 18 or later, for `scripts/improvements.mjs`, which the registries, the
+  nudge and the `improve` skills use. Without it the nudge prints nothing, and the
+  retro's registry step and the `improve` skills stop with one line naming the
+  requirement.
 - `constitution`, only when a project opts into a constitution.
 
 **Old-format changes.** A change started under kentra-rpir 0.5.x has `tier: full`
 or `tier: light` in its spec, and separate spec and plan stages. It finishes on
 0.5.x. The plan, implement and review stages stop on such a spec and say so; this
 version does not migrate it.
+
+**Old layout.** A project without
+`rpir/config.yaml` is on the layout of 0.6.x and earlier. Every stage stops on it
+and names `scripts/migrate-layout.sh`; see [The change folder](#the-change-folder).
 
 ## Principles
 
@@ -52,7 +63,7 @@ version does not migrate it.
    in the change folder; research leaves reports and an index; the retro reads the
    implementation transcripts where Claude Code keeps them.
 5. **Configuration over editing skills.** Models, agent definitions and limits
-   live in `.kentra-rpir.yaml`, so they can be tuned from any session.
+   live in `rpir/config.yaml`, so they can be tuned from any session.
 
 ## Roles
 
@@ -69,10 +80,10 @@ default model; none restricts tools.
 | `lead` | opus | the implement orchestrator | leads one milestone: cuts it into pieces, briefs implementers, reviews their work |
 | `implementer` | sonnet | a lead | builds and commits one piece from the lead's brief |
 | `verifier` | opus | the implement orchestrator | checks one milestone against its description and contract |
-| `retro` | opus, sonnet, haiku | the `spec-retro` workflow | reads the transcripts: pre-pass, blind readers, synthesis, reconciliation, remediation |
+| `retro` | opus, sonnet, haiku | the `spec-retro` workflow | reads the transcripts: pre-pass, blind readers, synthesis, reconciliation, registry recording |
 
 The reviewer, lead, implementer, verifier and retro roles are configurable under
-`roles` in `.kentra-rpir.yaml`. The research agents and their models are fixed by
+`roles` in `rpir/config.yaml`. The research agents and their models are fixed by
 the research skill.
 
 Only the main session receives a background subagent's result and can resume it
@@ -87,26 +98,34 @@ never to the subagent. Two consequences shape the process:
 
 ## The change folder
 
+Every kentra-rpir file of a project lives under `rpir/` at the project root:
+
 ```
-.kentra-rpir.yaml                    # project config (committed)
-.kentra-rpir/                        # session state (gitignored)
-  sessions.map                       # session id, change folder, stage
-  reviewed/<change>/                 # last reviewed copies of spec and plan, and the review's planning log
-  research-queue/<session id>.tsv    # one research queue per session
-  implement-state.json               # the implement orchestrator's agents and hand-back times
+rpir/
+  config.yaml                        # project config
+  research/                          # research outside any change
+    index.jsonl                      # every finding, project-wide
+    <slug>.md                        # one report per job
+    .local/                          # queue and spikes of standalone research (gitignored)
+  improvements/                      # project registry: <class id>.json, state.json
+  changes/
+    2026-11-14-<slug>/
+      spec.md
+      plan.yaml                      # standard tier only
+      planning-log.jsonl             # trimmed planning sessions
+      impl-report.md
+      spec-retro.md
+      research/
+        <slug>.md                    # one report per research job
+      audit/<repo>.md                # audit findings and their decisions
+      .local/                        # machine-local state (gitignored)
+        sessions                     # "<session id> <stage>" per line
+        reviewed/                    # last reviewed copies of spec and plan, and the review's planning log
+        research-queue.tsv           # the research queue of jobs started for the change
+        implement-state.json         # present only while implement is unfinished
+        audit.<repo>.running         # present while that repository's audit runs
+        spikes/<slug>/               # a spike's experiment files
 .worktrees/                          # implement worktrees (gitignored)
-docs/research/                       # research.dir: reports from research outside a change
-  index.jsonl                        # research.index: every finding, project-wide
-docs/changes/
-  2026-11-05-<slug>/
-    spec.md
-    plan.yaml                        # standard tier only
-    planning-log.jsonl               # trimmed planning sessions
-    impl-report.md
-    spec-retro.md
-    research/
-      <slug>.md                      # one report per research job
-      spikes/<slug>/                 # a spike's experiment files (gitignored)
 ```
 
 - One folder per change. There is no `type` in the path; the spec's frontmatter
@@ -114,22 +133,65 @@ docs/changes/
 - The folder name is `<date the spec started>-<slug>`, and it never moves. A
   finished change stays where it is with `status: done`.
 - `planning-log.jsonl` and the research reports are committed: they are the
-  durable record of how the change was defined. Spike experiment files never reach
-  git. The plan skill makes sure `.gitignore` holds `.kentra-rpir/`, the
-  `worktreesDir` and `<changesDir>/*/research/spikes/`, and `commit-change.sh`
-  refuses to commit when spike files are not gitignored or the change folder holds
-  a nested git repository.
+  durable record of how the change was defined. Everything under `.local/` stays
+  on the machine: the plan skill makes sure `.gitignore` holds `rpir/**/.local/`
+  and the `worktreesDir`, and `commit-change.sh` refuses to commit when a
+  non-empty `.local/` is not gitignored or the change folder holds a nested git
+  repository.
+- Per-change `.local/` is what lets several implementations run in one project:
+  each has its own `implement-state.json`. At start, implement lists every other
+  unfinished one (each `rpir/changes/*/.local/implement-state.json`, with its
+  phase and last update time) and deletes its own file when the stage finishes.
+  A stage finds "the newest change" from the newest `.local/sessions` file.
 - The spec's `status` moves `draft` → `agreed` → `planned` → `implementing` →
   `in-review` → `done`.
 
-### `.kentra-rpir.yaml`
+### Every stage starts the same way
 
-The first `/kentra-rpir:plan` in a project writes it from
-`templates/kentra-rpir.yaml`, after asking the three fields marked †. Missing keys
-take the template's defaults, which are these:
+Each stage runs `scripts/stage-start.sh <project root>` first. It prints:
+
+- `config: new | existing`: `rpir/config.yaml` now holds the project id;
+- `mode: tracked | untracked`;
+- `user-config: <path>`, or `user-config: missing` with the questions to ask (see
+  [The user config](#the-user-config)).
+
+It exits 3, writing nothing, when the project is on the old layout.
+
+### Untracked mode
+
+`track: false` in `rpir/config.yaml` makes the plan stage add `/rpir/` to
+`.gitignore`. A project is in **untracked mode** when `rpir/` is gitignored, or
+the project root is not a git repository (a workspace folder of several
+repositories). In untracked mode:
+
+- stages skip their commits of the change folder and say so in one line;
+- leads and verifiers get the spec's path in the main checkout, because the
+  worktrees hold no `rpir/`;
+- plan adjustments during implement go in `impl-report.md` as a diff against
+  `<change>/.local/reviewed/plan.yaml`;
+- the plan skill's step 10 still checks that every diff review has finished.
+
+### Migrating an old layout
+
+`sh scripts/migrate-layout.sh [<project root>]` moves the config, the change
+folders, research, the index and the machine-local state into the layout above,
+and prints one line per action. It never commits: review `git status`, then
+commit. It sets `track: false` when the old change folder or config was
+gitignored, removes old-path symlinks that point into `rpir/` instead of copying
+through them, writes `project:` (the directory name) when it is absent, stops
+before moving anything when a destination holds different content, and changes
+nothing on a second run.
+
+### `rpir/config.yaml`
+
+The first stage run in a project creates it with the `project:` id. The first
+`/kentra-rpir:plan` then asks the questions marked †, from
+`templates/config.yaml`. Missing keys take the template's defaults, which are
+these:
 
 ```yaml
-changesDir: docs/changes            # † where change folders live
+project: <directory name>           # stable project id; written by stage-start, never changed by a rename
+track: true                         # † false: gitignores all of rpir/
 tracker: none                       # † none | github | jira
 constitution: false                 # † true: the plan stage and its reviewer read constitution/constitution.md
 spec:
@@ -140,7 +202,8 @@ roles:                              # agent: a subagent type; model: overrides t
   implementer: { agent: "kentra-rpir:implementer", model: sonnet }  # one per piece of work, dispatched by the lead
   verifier:    { agent: "kentra-rpir:verifier",    model: opus }
   impl-orchestrator: { model: opus }                              # the main session running implement
-  retro:       { agent: "kentra-rpir:retro",       model: opus }    # synthesis, reconciliation, remediation
+  review-orchestrator: { model: opus }                            # the main session running review
+  retro:       { agent: "kentra-rpir:retro",       model: opus }    # synthesis and reconciliation
   prepass:     { agent: "kentra-rpir:retro",       model: haiku }   # transcript signals and skeleton timeline
   reader:      { agent: "kentra-rpir:retro",       model: sonnet }  # per-milestone blind readers
 research:
@@ -148,8 +211,6 @@ research:
   maxParallel: 4                    # research jobs running at once in one session
   maxLookups: 4                     # lookups one job runs at once
   staleMinutes: 60                  # a running job older than this loses its slot
-  dir: docs/research                # reports from research outside an rpir change
-  index: docs/research/index.jsonl  # project-wide index of findings, checked before any job starts
 implement:
   maxParallel: 3                    # milestones in progress at once: a lead each, from dispatch to merge
   cacheWindowMinutes: 5             # a verifier is resumed for re-verification only this soon after its last hand-back
@@ -159,17 +220,47 @@ implement:
   branchPrefix: rpir/
   openPullRequest: true             # only when the remote is GitHub and gh is authenticated
   push: true                        # false: the stages commit locally and push only when the user asks
+audit:                              # see "The audit"; wins over the user config's audit
+  skill: ""                         # e.g. ponytail:ponytail-audit; empty for none
+  args: ""                          # may use {{worktree}}, {{base}} and {{head}}, filled per repository
 ```
 
 - A project points a role at its own `.claude/agents/<name>.md` to tune the system
   prompt. The skills read the file on every run, so a change takes effect on the
   next one.
-- `roles.impl-orchestrator` has no agent: it is the model the implement session
-  should run on. The skill says so before starting when the session runs on
-  another model.
+- `roles.impl-orchestrator` and `roles.review-orchestrator` have no agent: each is
+  the model the implement or review session should run on. The skill says so before
+  starting when the session runs on another model.
 - `roles.retro`, `prepass` and `reader` are the `spec-retro` workflow's agents.
+- The research folder is always `rpir/research/` and its index
+  `rpir/research/index.jsonl`; they are not configurable.
 - The defaults `research.maxParallel` and `maxLookups` keep the pool within Claude
   Code's 20 concurrent subagents.
+
+### The user config
+
+`${XDG_CONFIG_HOME:-~/.config}/kentra-rpir/config.yaml` holds what belongs to the
+user, not the project. The first stage run on a machine without it asks four
+questions in one message and writes it from `templates/user-config.yaml`:
+
+1. Record plugin findings from retros? Default yes, recorded silently. The
+   findings are kept for local tuning if you later fork the plugin.
+2. Nudge about plugin findings at session start? Default no.
+3. The plugin source path, asked only when the answer to 2 is yes.
+4. A default audit skill? Default none.
+
+```yaml
+plugin:
+  record: true        # record retro findings into the plugin registry
+  nudge: false        # also nudge about plugin findings at session start
+  source: ""          # plugin source path; used by improve-plugin
+nudge:
+  days: 3             # minimum days between nudges per registry
+  minFindings: 5      # findings recorded since the last improve run before a nudge
+audit:
+  skill: ""           # default audit skill; empty for none
+  args: ""            # may use {{worktree}}, {{base}} and {{head}}
+```
 
 ## Tiers
 
@@ -217,9 +308,11 @@ decides intent; the session drafts, researches what the change assumes, and
 writes it down. It asks the user only about intent, never about facts it can look
 up.
 
-1. **Set up.** On first use, write `.kentra-rpir.yaml`. Create the change folder
-   (or find an existing one to revise), register the session in
-   `.kentra-rpir/sessions.map`, link or create the tracker issue, and read what the
+1. **Set up.** Run `scripts/stage-start.sh`. On first use in a project, ask the
+   tracker, constitution and `track` questions and write `rpir/config.yaml`. Make
+   sure `.gitignore` holds `rpir/**/.local/`, the worktrees dir, and `/rpir/` when
+   `track` is false. Create the change folder in `rpir/changes/` (or find an
+   existing one to revise), register the session in `<change>/.local/sessions`, link or create the tracker issue, and read what the
    change touches: the README, the constitution when enabled, the code in the area,
    recent commits.
 2. **Ask.** Up to `spec.questionBatch` questions per message when they do not
@@ -260,8 +353,8 @@ up.
     reviewed spec. The session waits for this change's running research jobs (or
     tells the user which it drops), sets `status: planned`, writes the planning
     log, and commits the change folder with `scripts/commit-change.sh`, together
-    with the research index, `.kentra-rpir.yaml` and `.gitignore` when this
-    session changed them.
+    with the research index, `rpir/config.yaml` and `.gitignore` when this
+    session changed them. In untracked mode nothing is committed.
 
 A later revision goes through steps 9 and 10, committed as `plan: amend <title>`.
 
@@ -296,7 +389,7 @@ planningLog: planning-log.jsonl
 ### Coarse plans
 
 The planning session writes `plan.yaml` itself, in milestoned-plan-dag schema
-0.4.0. A plan says what to build and why, and how it is checked; the lead reads
+0.5.0. A plan says what to build and why, and how it is checked; the lead reads
 the repo and decides how. There are no steps and no code.
 
 - **A milestone** is a deliverable a reviewer could merge on its own: one
@@ -318,11 +411,32 @@ the repo and decides how. There are no steps and no code.
   - `depends-on`: every milestone whose output it uses. Order in the file creates
     no edge;
   - `rules`.
+- **`repo`.** For a change that spans several repositories, see
+  [Multi-repository plans](#multi-repository-plans).
 - **Parallel work.** Milestones with no dependency path between them get
   non-overlapping `paths`. Shared types, shared files and version pins go in the
   earliest milestone that needs them.
 - **Plan premises** go to research like spec premises, and into the `# premises:`
   block at the end of the file.
+
+### Multi-repository plans
+
+A plan can span several repositories, one repository per milestone, in a workspace
+whose root need not be a git repository. Every milestone sets `repo`, or none does
+(`validate` rejects a mix): a relative path from the project root to a git
+repository, compared after cleaning (`a`, `./a` and `a/` are one repository). It
+may start with `../`; an absolute path is rejected. In such a plan a milestone's
+`paths` are relative to its repository, overlap warnings compare only milestones of
+the same repository, and `resolve` and `render` show each milestone's repository.
+The reviewer runs its base checks in each milestone's repository. A milestone
+never spans two repositories, and the plan's `description` covers artifacts that
+flow between repositories (such as publishing to a local package cache).
+
+Implement cuts an integration worktree and branch per repository (see
+[Worktrees and branches](#worktrees-and-branches)), runs the check per repository,
+opens a pull request per repository, and writes a Repositories table and a merge
+order into `impl-report.md`. A single-repository plan sets no `repo` and is
+unchanged.
 
 ### Rules
 
@@ -351,7 +465,7 @@ another fresh reviewer. The plan skill dispatches each with the Agent tool from
 | Wording, typos, formatting; a technical fix applied as the reviewer wrote it | None. The user sees the diff. |
 
 When unsure, run a diff review. The reviewer reads the sources itself: the
-planning log (written to `.kentra-rpir/reviewed/<change>/` before each review), the
+planning log (written to `<change>/.local/reviewed/` before each review), the
 ledger and the research reports it links, the constitution when enabled, and the
 project rules that govern the files the change touches (`CLAUDE.md` and
 `AGENTS.md` on their paths, path-scoped `.claude/rules`, and the skills those or
@@ -441,11 +555,12 @@ conclusion rests on.
 
 ### The queue
 
-`scripts/research-queue.sh add | next | done | list` keeps one queue per Claude
-Code session, in `.kentra-rpir/research-queue/<session id>.tsv`.
+`scripts/research-queue.sh add | next | done | list` keeps one queue per change, in
+`<change>/.local/research-queue.tsv`, or one for research outside a change, in
+`rpir/research/.local/research-queue.tsv`.
 
-- **`add`** queues a job and prints its id, unique within the session's queue,
-  and its report path. A slug already taken in any session's queue, or on disk,
+- **`add`** queues a job and prints its id, unique within the queue,
+  and its report path. A slug already taken in the queue, or on disk,
   gets a numeric suffix (`-2`, `-3`), so a report is never overwritten.
 - **`next`** starts queued jobs in arrival order while fewer than
   `research.maxParallel` run. A job running longer than `research.staleMinutes`
@@ -465,9 +580,9 @@ Each job runs at most `research.maxLookups` lookups at once.
   the Conclusion. A fact job's lookup returns sources only, and the main session
   writes its report.
 - **Where reports go.** Inside an rpir change, to `<change>/research/<slug>.md`,
-  with a spike's experiment files in the gitignored `<change>/research/spikes/`.
-  Outside one, to `research.dir` and `<research.dir>/spikes/`.
-- **The index** (`research.index`) is a project-wide JSONL file. Each job appends
+  with a spike's experiment files in the gitignored `<change>/.local/spikes/`.
+  Outside one, to `rpir/research/` and `rpir/research/.local/spikes/`.
+- **The index** (`rpir/research/index.jsonl`) is a project-wide JSONL file. Each job appends
   one row: claim, `subject` as `<name>@<version>`, verdict, confidence,
   conclusion, date and report path. The main session checks it before queueing:
   - the current row for the same claim at the same version, `verified` or
@@ -528,11 +643,19 @@ agent starts each shell command with `cd <worktree> &&`.
 ### Worktrees and branches
 
 ```
-<project>/
+<repository>/
   .worktrees/                      # implement.worktreesDir; gitignored
     <slug>/                        # integration worktree, branch rpir/<slug>
     <slug>--m3-<milestone-slug>/   # one per milestone in progress, branch rpir/<slug>--m3
 ```
+
+A single-repository change has one repository, the project root. A plan whose
+milestones set `repo` gets this layout in every repository it touches, each
+integration branch cut from that repository's current branch. When the repository
+does not ignore the worktrees dir, implement adds it to the clone's
+`.git/info/exclude`. A milestone's worktree and branch are cut from, and merged
+back into, its own repository's integration branch. The change folder stays in the
+project root, which is among the repositories when it is a git repository.
 
 - A milestone's worktree branches from the integration branch **after** every
   milestone it depends on has been merged into it. That head is the milestone's
@@ -542,11 +665,13 @@ agent starts each shell command with `cd <worktree> &&`.
 
 ### The orchestrator loop
 
-1. **Start.** Find the change. Stop on a `full` or `light` spec. At the standard
-   tier, validate and resolve `plan.yaml`. At the small tier, build the one
-   milestone (below) and confirm its contract with the user. Create or resume the
-   state file, create the integration worktree, register the session, set
-   `status: implementing`, and run the check once for a green baseline.
+1. **Start.** Run `scripts/stage-start.sh`. Find the change. Stop on a `full` or
+   `light` spec. At the standard tier, validate and resolve `plan.yaml`. At the
+   small tier, build the one milestone (below) and confirm its contract with the
+   user. List the other unfinished implementations. Create or resume the state
+   file, create an integration worktree in each repository, register the session,
+   set `status: implementing`, and run each repository's check once for a green
+   baseline.
 2. **Dispatch leads.** For every milestone whose dependencies are merged, while
    fewer than `implement.maxParallel` milestones are in progress (a lead
    dispatched, not yet merged or settled as blocked), create its worktree and
@@ -572,7 +697,8 @@ agent starts each shell command with `cd <worktree> &&`.
    `impl-report.md`, set `status: in-review`, commit, push the integration branch
    when `implement.push` is set (otherwise tell the user it is ready to push),
    open a pull request when it is pushed, `implement.openPullRequest` is set, the
-   remote is GitHub and `gh` is authenticated, and delete the state file.
+   remote is GitHub and `gh` is authenticated (each per repository), launch the
+   [audit](#the-audit) when one is configured, and delete the state file.
 
 ### Milestone leads
 
@@ -618,7 +744,7 @@ message only while the lead's turn is still going. So:
 
 1. The lead keeps its turn going with the Monitor tool, on an until-loop that ends
    once the branch head has moved past the piece's base; the hand-back follows the
-   commit. The harness refuses a foreground `sleep`.
+   commit. Claude Code refuses a foreground `sleep`.
 2. When Monitor is unavailable or its turn must end while the implementer runs,
    the lead hands back `STATUS: WAITING`, naming the implementer.
 3. The implementer's report then goes to the orchestrator. The orchestrator sets
@@ -661,9 +787,11 @@ It returns `PASS` or `FAIL` with findings, each tagged with the check it failed.
 
 ### The state file
 
-`.kentra-rpir/implement-state.json` records what the orchestrator needs to pick the
-run up again. It is rewritten on every dispatch, hand-back, phase change and merge.
-Per milestone it holds the worktree, branch and base; the phase (`lead`,
+`<change>/.local/implement-state.json` records what the orchestrator needs to pick
+the run up again. It is rewritten on every dispatch, hand-back, phase change and
+merge, and deleted when the stage finishes. Its `repos` map holds, per repository,
+the path, integration worktree, branch, base and current head. Per milestone it
+holds the repository, worktree, branch and base; the phase (`lead`,
 `waiting`, `verify`, `merged` or `blocked`); the lead's and verifier's agent ids
 with their last hand-back times; the lead rounds, verify rounds and verifier
 resumes; and at the small tier the contract the user confirmed.
@@ -704,7 +832,9 @@ never re-sent unchanged. Milestones that do not depend on the blocked one keep
 going while the user is asked.
 
 **Plan adjustments** are edited into `plan.yaml` on the integration branch,
-validated, committed with the reason, and listed in `impl-report.md`. Anything
+validated, committed with the reason, and listed in `impl-report.md`. In untracked
+mode there is no commit: the report records each adjustment as a diff against
+`<change>/.local/reviewed/plan.yaml`. Anything
 that would change `spec.md` goes to the user.
 
 ### `impl-report.md`
@@ -714,29 +844,41 @@ resumed) and the merge commit; each verifier FAIL and its findings; pending
 criteria and the user's answers; concerns and how each was settled; the lead's
 decisions; replaced agents; and what agents observed but did not fix. Then the
 plan adjustments, the decisions the user made, and the merge conflicts resolved.
-The retro checks every claim in it against the transcripts.
+A Repositories table at the top gives each repository's path, integration worktree,
+branch and base; review reads it there after the state file is gone. For a plan
+that spans several repositories the milestones form one table per repository, and
+a merge order says which pull request merges first. Each lead's final CONCERNS and
+OBSERVED lines are copied verbatim. The retro checks every claim in it against the transcripts.
 
 ## Stage 3: review
 
 **Skill:** `kentra-rpir:review` · main session, plus the `spec-retro` workflow
 
-Review has two halves, and the user does both.
+Review has two halves, and the user does the first.
 
 1. **Process retro.** The skill launches the `kentra-rpir:spec-retro` workflow in
    the background first, with the change's sessions from `sessions.sh list`, the
-   planning log, the research folder and index, and each merged milestone's diff
-   range.
+   planning log, the research folder and index, each merged milestone's diff range
+   in its own repository, and what the registry step needs (the project id, the
+   plugin version, `plugin.record`).
 2. **Code review.** Meanwhile the skill presents the change: the pull request or
-   branch, a line per milestone, the verifier findings and concerns, plan
-   adjustments, blocked milestones, and anything in `impl-report.md` that needs a
-   decision. A small fix the session makes itself; anything bigger is built like a
-   milestone, with a fresh lead, a verifier and a merge.
-3. **Retro review.** When the workflow finishes, the skill presents
-   `spec-retro.md` and goes through each action with the user. Each is
-   **applied** (its target is in this repo), **filed** as an issue against
-   `kentra-io/kentra-rpir` (its target is one of this plugin's skills, agents,
-   workflows or templates), **deferred** or **rejected**.
-4. When both are done, the skill sets `status: done` and commits.
+   branch (one diff per repository), a line per milestone, the verifier findings
+   and concerns, plan adjustments, blocked milestones, and anything in
+   `impl-report.md` that needs a decision. A small fix the session makes itself;
+   anything bigger is built like a milestone, with a fresh lead, a verifier and a
+   merge.
+3. **Audit.** When implement launched an [audit](#the-audit), the session waits for
+   it, judges every finding and applies the worthwhile ones without asking.
+4. **Retro line.** When the workflow finishes, the skill shows one line: findings
+   recorded per scope, and any class that recurred after its fix shipped. It does
+   not walk through actions or file issues; the user decides what to change later,
+   with `improve` and `improve-plugin`.
+5. When the code review is done, the skill sets `status: done` and commits the
+   change folder (including `audit/`) and `rpir/improvements/`; in untracked mode
+   it commits nothing.
+
+The review session runs on `roles.review-orchestrator.model` (default Opus) and
+tells the user before starting when it does not.
 
 ### The `spec-retro` workflow
 
@@ -785,15 +927,12 @@ Grounded in the research on agent-session retros (sources at the end).
 4. **Reconciliation** (`roles.retro`, a separate agent). Check every claim in
    `impl-report.md` against the blind findings: **confirmed**, **contradicted** or
    **unsupported**. A contradicted claim is itself a finding.
-5. **Remediation** (`roles.retro`). Each finding ends in exactly one action:
-   - a diff to a named skill, agent definition, template or `CLAUDE.md`, as before
-     and after;
-   - an eval case: the prompt, the fixture commit, and what counts as a pass;
-   - an automated check: a hook, a lint, a test, a schema rule;
-   - "no action, model variance", with the reasoning.
-
-   Prefer an automated check over adding prose. A proposed skill edit must say what
-   text it removes, or why its added length pays for itself.
+5. **Registry.** After `spec-retro.md` is written, label each finding `plugin` (a
+   skill, agent, workflow, template or script of kentra-rpir) or `project`. Match it
+   to an existing finding class in that scope's [registry](#improvements), or create
+   a class, and record an occurrence. Plugin findings are recorded only when the
+   user config's `plugin.record` is true. The workflow's result tells review how
+   many findings went to each scope and which classes regressed.
 
 Every workflow prompt opens by stating that the task below is the agent's only
 job. Workflow agents receive the user's latest message relayed with their task,
@@ -821,10 +960,103 @@ and a small model may answer it instead of doing the task.
 8. **Findings:** id, fault class, decisive step with its reference, how it made
    sense at the time, severity.
 9. **What went well:** what to keep, so that a fix does not undo it.
-10. **Actions:** one per finding, as above, with the user's decision.
-11. **Recurring:** fault classes and findings also seen in earlier retros in
-    `<changesDir>/*/spec-retro.md`.
-12. **Open questions:** what the evidence could not settle.
+10. **Open questions:** what the evidence could not settle.
+
+## Improvements
+
+Retros make findings; two registries remember them across changes, and two skills
+turn them into changes. The registries replace the per-change action list: a retro
+no longer proposes actions, and nothing is lost when the user rejects an idea.
+
+### The registries
+
+| Registry | Holds | Lives in |
+|---|---|---|
+| Plugin | findings about kentra-rpir itself | `${XDG_DATA_HOME:-~/.local/share}/kentra-rpir/improvements/` |
+| Project | findings about how this project works with the process | `rpir/improvements/` (tracked unless `track: false`) |
+
+Each holds one JSON file per **finding class**, plus a `state.json` with the times
+of the last `improve` run and the last nudge. A class is one problem and its
+proposed fix: `id` (a kebab-case slug, fixed at creation), `title`, `problem`,
+`fix`, `complexity` (S, M or L), `scope`, `status` (`open`, `accepted`, `shipped`
+or `regressed`), `shipped[]` (a version and date per release that carried the fix),
+`occurrences[]` and `decisions[]`. An **occurrence** is one sighting of the class in
+one change: the project id, change, finding id, the change's own date and plugin
+version, a count, wall minutes, tokens, user interventions and severity. A re-run
+retro replaces its change's earlier occurrences.
+
+`scripts/improvements.mjs` (node) is the only writer. Its subcommands:
+`record` (the retro's step; stdin is a JSON array), `list` (classes ranked, each
+with its eligibility and the reason), `decide`, `ship`, `nudge`, and `import`.
+`import --file <spec-retro.md or retro-backlog.md> --project-id <id>` seeds a
+registry from an older retro report.
+
+**Ranking.** Each occurrence weighs
+`count × (1 + wallMinutes/30 + 2·userInterventions + severityWeight)`, with
+severity 0, 2 or 6 for low, medium and high, and the weight halves every 60 days.
+A class's **impact** is the sum; its **priority** is impact divided by its
+complexity weight (S 1, M 3, L 8), and doubled when it is `regressed`. A class is
+`regressed` when an occurrence comes from a plugin version later than the newest in
+its `shipped[]`. The script computes this, so a ranking is reproducible.
+
+**Eligibility.** A rejected class is not proposed again until the impact of the
+occurrences since the last rejection reaches half its impact at that rejection, or
+one of them is high severity. A rejection never closes a class; when it returns,
+the proposal shows every earlier reason.
+
+### `improve` and `improve-plugin`
+
+`improve` works the project registry; `improve-plugin` works the plugin registry,
+against the plugin source path (`plugin.source`) in the user config. Each:
+
+1. stops with one line when node is missing (and `improve-plugin`, when
+   `plugin.source` is not a git checkout);
+2. lists the eligible classes and takes the top five, or says none is eligible;
+3. shows each with its counts, accumulated wall minutes, tokens and interventions,
+   impact, priority and complexity, `regressed` when set, every earlier rejection
+   with its reason, and the occurrences since the last one;
+4. records the user's decision per class: accept, reject with a reason, or defer
+   (a proposal left undecided is deferred);
+5. carries out the accepted ones. `improve` edits the project's own files
+   (AGENTS.md, conventions, CI, `rpir/config.yaml`), runs the project's standard
+   check and commits; its accepted classes stay `accepted`, since a project has no
+   version. `improve-plugin` branches when the checkout is on its default branch,
+   edits the skills, agents, workflows, scripts or templates, bumps the plugin's
+   `version`, runs `sh tests/run.sh`, commits, and marks each class `shipped` with
+   the new version. Pushing and releasing stay the user's call.
+
+### The nudge
+
+A SessionStart hook (`hooks/nudge.sh`, matcher `startup|resume`) runs
+`improvements.mjs nudge` and prints at most one line per scope, asking the model to
+relay it to the user. A scope nudges only when its last nudge was at least
+`nudge.days` days ago (default 3) and it has at least `nudge.minFindings`
+occurrences (default 5) recorded since its last `improve` run. The project nudge is
+always on; the plugin nudge is on only when `plugin.nudge` is true in the user
+config. Without node the hook prints nothing and never fails the session.
+
+## The audit
+
+An optional skill, named in config, runs on each repository's result while the user
+reads the code. `audit: { skill: <skill name>, args: <text> }` goes in
+`rpir/config.yaml`, which wins, or in the user config; unset means no audit. `args`
+may use `{{worktree}}`, `{{base}}` and `{{head}}`, filled per repository.
+
+- **Launch.** The last step of implement, after `impl-report.md` is written, starts
+  one background subagent per repository (from `skills/implement/audit-prompt.md`).
+  Each runs the skill on its integration worktree and writes the skill's findings to
+  `<change>/audit/<repo>.md`, keeping `<change>/.local/audit.<repo>.running` while
+  it runs. `<repo>` is the project id for a single-repository change; otherwise the
+  cleaned `repo` path with leading `../` dropped and `/` replaced by `-`; when two repositories map to one name, `-2`, `-3` are appended in plan order. A subagent
+  that cannot invoke the skill (for example, because the skill disables model
+  invocation) writes that reason as the file's content.
+- **Apply.** Review waits until no `.running` marker is left, then judges every
+  finding against the spec and the code and decides without asking the user. A
+  small fix it makes itself; a larger one goes through a fresh lead and verifier,
+  as a user-requested fix does. Each finding's decision (`applied`, or `skipped:
+  <reason>`) and size are appended to its audit file under `## Decisions`, and
+  review shows one summary line. A user instruction about a finding overrides the
+  judgement.
 
 ## Session records
 
@@ -834,9 +1066,9 @@ reads those transcripts where Claude Code already keeps them.
 
 ### Finding sessions
 
-Each stage skill writes `<session id> <change folder> <stage>` to
-`.kentra-rpir/sessions.map` when it starts; stages are `plan`, `implement` and
-`review`. `scripts/sessions.sh` is the one place that parses the map and finds
+Each stage skill writes `<session id> <stage>` to
+`<change folder>/.local/sessions` when it starts; stages are `plan`, `implement` and
+`review`. `scripts/sessions.sh` is the one place that parses the sessions files and finds
 transcripts: `sessions.sh list` lists every session registered to a change, with
 its stage(s) and transcript path; `sessions.sh transcript` resolves a session id to
 its transcript under Claude Code's project directory, falling back to a search when
@@ -852,7 +1084,7 @@ keeps user messages, assistant text, questions and answers, tool calls (one line
 each) and compaction markers. It drops tool results, thinking, and every subagent
 and workflow-agent transcript, whose results already live in the research reports
 and the review hand-backs. Before each review the plan skill writes it to
-`.kentra-rpir/reviewed/<change>/planning-log.jsonl` for the reviewer; on approval it
+`<change>/.local/reviewed/planning-log.jsonl` for the reviewer; on approval it
 writes it into the change folder and commits it with the spec and plan.
 
 **Trade-off, accepted:** full transcripts are not in git. Claude Code's transcript
@@ -874,8 +1106,10 @@ The [README](../README.md#watching-an-implement-run) describes it.
 skills/
   plan/       SKILL.md  reviewer-prompt.md
   research/   SKILL.md
-  implement/  SKILL.md  lead-prompt.md  verifier-prompt.md
+  implement/  SKILL.md  lead-prompt.md  verifier-prompt.md  audit-prompt.md
   review/     SKILL.md
+  improve/    SKILL.md
+  improve-plugin/  SKILL.md
 agents/
   reviewer.md  lookup.md  spike.md  researcher.md  advisor.md
   lead.md  implementer.md  verifier.md  retro.md
@@ -883,9 +1117,12 @@ workflows/
   spec-retro.js
 scripts/
   sessions.sh  redact.sh  planning-log.sh  commit-change.sh  research-queue.sh
+  stage-start.sh  migrate-layout.sh  improvements.mjs
 templates/
-  spec.md  impl-report.md  spec-retro.md  kentra-rpir.yaml
-hooks/  types/                  # the milestone graph pane
+  spec.md  impl-report.md  spec-retro.md  config.yaml  user-config.yaml
+hooks/
+  hooks.json  nudge.sh          # the SessionStart nudge
+  types/                        # the milestone graph pane
 docs/process.md                 # this document
 README.md
 ```
@@ -895,7 +1132,7 @@ README.md
 Full research reports: [`references/agent-session-retro-research-2026-10.md`](https://github.com/kentra-io/harness/blob/main/references/agent-session-retro-research-2026-10.md) and [`references/rpi-rpir-research-2026-10.md`](https://github.com/kentra-io/harness/blob/main/references/rpi-rpir-research-2026-10.md). The retro method draws on:
 
 - arXiv 2607.09510: failed CLI coding-agent trajectories, decisive-error timing.
-- arXiv 2607.28802, "Model or Harness?": attributing failures to the component to
+- arXiv 2607.28802: attributing failures to the component to
   fix.
 - arXiv 2605.29442: misalignment patterns in 20,574 coding-agent sessions,
   including inaccurate self-reporting.

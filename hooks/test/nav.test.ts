@@ -6,9 +6,9 @@ import { isArrowScroll, nextSelection, toolSummary } from '../nav'
 
 const PANE = 'rpir-graph'
 const FILES: Record<string, string> = {
-  '.kentra-rpir/sessions.map': 'S1 docs/changes/demo implement\n',
-  'docs/changes/demo/spec.md': '---\ntitle: Demo change\n---\n',
-  'docs/changes/demo/plan.yaml': [
+  'rpir/changes/demo/.local/sessions': 'S1 implement\n',
+  'rpir/changes/demo/spec.md': '---\ntitle: Demo change\n---\n',
+  'rpir/changes/demo/plan.yaml': [
     'schemaVersion: 0.3.0',
     'description: Demo',
     'milestones:',
@@ -39,6 +39,11 @@ function setup(on: On): Map<string, unknown> {
   mock.clock(on, { now: 1_000_000 })
   on('session.id', () => ({ value: 'S1' }))
   on('session.root', () => ({ value: '/repo' }))
+  on('fs.list', (_$, e) => ({
+    value: e.path.endsWith('/rpir/changes')
+      ? [{ name: 'demo', kind: 'dir' as const, size: 0, mtimeMs: 0, isLink: false }]
+      : [],
+  }))
   on('fs.read', (_$, e) => {
     const hit = Object.keys(FILES).find(k => e.path === k || e.path.endsWith(`/${k}`))
     if (hit === undefined) throw new Error(`ENOENT: ${e.path}`)
@@ -96,7 +101,7 @@ test('ui.scroll routing', async ($, on) => {
     if (e.origin.kind === 'person') passed.push(e.by)
     return {}
   })
-  on('ui.focus', () => ({}))
+  on('ui.focus', { plugin: '*' }, () => ({}))
   await trackRun($)
   await $.ui.focus(personFocus('m-b'))
   expect(selectionOf(states)).toBe('b')
@@ -118,7 +123,7 @@ test('ui.scroll routing', async ($, on) => {
 test('ui.focus routing', async ($, on) => {
   const states = setup(on)
   const landed: (string | undefined)[] = []
-  on('ui.focus', (_$, e) => {
+  on('ui.focus', { plugin: '*' }, (_$, e) => {
     landed.push(e.element)
     return {}
   })

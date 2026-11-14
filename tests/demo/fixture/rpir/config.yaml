@@ -1,5 +1,5 @@
 # kentra-rpir configuration for the throwaway demo project. Cheap roles.
-changesDir: docs/changes
+project: demo
 tracker: none
 constitution: false
 roles:

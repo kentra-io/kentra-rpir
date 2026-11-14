@@ -18,7 +18,7 @@ git -C "$repo" init -q
 git -C "$repo" config user.email test@example.com
 git -C "$repo" config user.name "Test User"
 
-change=docs/changes/2026-10-11-demo
+change=rpir/changes/2026-10-11-demo
 mkdir -p "$repo/$change"
 echo "spec" > "$repo/$change/spec.md"
 git -C "$repo" add -A
@@ -69,22 +69,45 @@ check "an unrelated already-staged file is not swept into the commit" \
 check "the unrelated file remains staged after the commit" \
   sh -c "cd '$repo' && git diff --cached --name-only | grep -qx 'unrelated.txt'"
 
-# 3. Spikes present but not gitignored: refuse, name the pattern.
-mkdir -p "$repo/$change/research/spikes/y"
-echo "spike" > "$repo/$change/research/spikes/y/run.sh"
+# 3. Local state present but not gitignored: refuse, name the pattern.
+mkdir -p "$repo/$change/.local/spikes/y"
+echo "spike" > "$repo/$change/.local/spikes/y/run.sh"
 stdout3="$root/cc-stdout3"; stderr3="$root/cc-stderr3"
-(cd "$repo" && sh "$script" "$change" "with spikes") >"$stdout3" 2>"$stderr3"
+(cd "$repo" && sh "$script" "$change" "with local") >"$stdout3" 2>"$stderr3"
 rc3=$?
-check "unignored spikes exit 1" test "$rc3" -eq 1
-check "unignored spikes message names the pattern" grep -q 'research/spikes/' "$stderr3"
-check "unignored spikes: no spike staged" sh -c "cd '$repo' && ! git diff --cached --name-only | grep -q research/spikes/"
+check "unignored .local exits 1" test "$rc3" -eq 1
+check "unignored .local message names the pattern" grep -q 'rpir/\*\*/.local/' "$stderr3"
+check "unignored .local: nothing local staged" sh -c "cd '$repo' && ! git diff --cached --name-only | grep -q '\.local/'"
 
-# 4. Once ignored, the commit goes through and the spike stays out of it.
-echo 'docs/changes/*/research/spikes/' > "$repo/.gitignore"
-(cd "$repo" && sh "$script" "$change" "with ignored spikes" .gitignore) >/dev/null 2>&1
+# 4. Once ignored, the commit goes through, the local state stays out of it,
+# and a repository inside .local/ does not block it.
+git -C "$repo/$change/.local/spikes/y" init -q
+echo 'rpir/**/.local/' > "$repo/.gitignore"
+(cd "$repo" && sh "$script" "$change" "with ignored local" .gitignore) >/dev/null 2>&1
 rc4=$?
-check "ignored spikes: commit succeeds" test "$rc4" -eq 0
-check "ignored spikes: spike not in HEAD" sh -c "cd '$repo' && ! git ls-tree -r --name-only HEAD | grep -q research/spikes/"
+check "ignored .local: commit succeeds" test "$rc4" -eq 0
+check "ignored .local: nothing local in HEAD" sh -c "cd '$repo' && ! git ls-tree -r --name-only HEAD | grep -q '\.local/'"
+
+# 5. Untracked mode: rpir/ gitignored, or no git repository at all.
+repo2="$root/repo2"
+mkdir -p "$repo2/$change"
+git -C "$repo2" init -q
+git -C "$repo2" config user.email test@example.com
+git -C "$repo2" config user.name "Test User"
+echo '/rpir/' > "$repo2/.gitignore"
+echo "spec" > "$repo2/$change/spec.md"
+out5=$(cd "$repo2" && sh "$script" "$change" "add demo" 2>&1)
+rc5=$?
+check "gitignored rpir/ exits 0" test "$rc5" -eq 0
+check "gitignored rpir/ prints the untracked-mode line" test "$out5" = "kentra-rpir: untracked mode (rpir/ is gitignored); nothing committed"
+check "gitignored rpir/ commits nothing" sh -c "cd '$repo2' && ! git rev-parse -q --verify HEAD >/dev/null"
+
+plain="$root/plain"
+mkdir -p "$plain/$change"
+out6=$(cd "$plain" && sh "$script" "$change" "add demo" 2>&1)
+rc6=$?
+check "a non-git directory exits 0" test "$rc6" -eq 0
+check "a non-git directory prints the untracked-mode line" test "$out6" = "kentra-rpir: untracked mode (not a git work tree); nothing committed"
 
 [ "$fails" -eq 0 ] && echo "all commit-change tests passed"
 exit "$fails"

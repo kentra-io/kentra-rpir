@@ -11,7 +11,7 @@ set -eu
 
 repo=$(cd "$(dirname "$0")/../.." && pwd)
 fixture="$repo/tests/demo/fixture"
-change=docs/changes/2026-10-16-demo-diamond
+change=rpir/changes/2026-10-16-demo-diamond
 
 dir=
 print_only=0

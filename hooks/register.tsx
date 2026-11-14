@@ -89,7 +89,7 @@ function dispatchPrompts(rows: readonly TranscriptRow[]): string[] {
 
 /** Loads the plan into the run; a plan that cannot be read now never
  *  replaces one read before (a continued session's id may not be in
- *  sessions.map yet). `hints`: text whose absolute paths may lead to the
+ *  a sessions file yet). `hints`: text whose absolute paths may lead to the
  *  project (dispatch prompts). */
 async function refreshPlan($: EngineInterface, hints: readonly string[]): Promise<void> {
   let cwd: string[] = []
